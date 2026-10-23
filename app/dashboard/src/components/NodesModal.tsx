@@ -50,7 +50,7 @@ import {
   useNodes,
   useNodesQuery,
 } from "contexts/NodesContext";
-import { FC, ReactNode, useState } from "react";
+import { FC, ReactNode, useId, useState } from "react";
 import { Controller, useForm, UseFormReturn } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import {
@@ -335,6 +335,7 @@ const NodeForm: NodeFormType = ({
   const inboundTags = [...inbounds.values()]
     .flat()
     .map((inbound) => inbound.tag);
+  const inboundsFieldId = useId();
   const { data: nodeSettings, isLoading: nodeSettingsLoading } = useQuery({
     queryKey: "node-settings",
     queryFn: () =>
@@ -519,8 +520,11 @@ const NodeForm: NodeFormType = ({
             />
           </Box>
         </HStack>
-        <FormControl isInvalid={!!form.formState?.errors?.allowed_inbounds}>
-          <FormLabel>{t("nodes.allowedInbounds")}</FormLabel>
+        <FormControl
+          as="fieldset"
+          isInvalid={!!form.formState?.errors?.allowed_inbounds}
+        >
+          <FormLabel as="legend">{t("nodes.allowedInbounds")}</FormLabel>
           <Controller
             name="allowed_inbounds"
             control={form.control}
@@ -536,9 +540,11 @@ const NodeForm: NodeFormType = ({
                   onChange={(value) => field.onChange(value as string[])}
                 >
                   <Wrap spacingX={4} spacingY={1}>
-                    {tags.map((tag) => (
+                    {tags.map((tag, index) => (
                       <WrapItem key={tag}>
                         <Checkbox
+                          // own id, otherwise every box takes the FormControl's id
+                          id={`${inboundsFieldId}-${index}`}
                           size="sm"
                           value={tag}
                           colorScheme={
