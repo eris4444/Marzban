@@ -22,6 +22,9 @@ ALL_PORTS="20001 20002 20003 20004 20006"  # VMESS_TCP VLESS_TCP TROJAN_TCP SS_T
 PASS=0
 FAIL=0
 TOKEN=
+# env sudo admin first; a real database admin is created in step 1 so users get an owner
+ADMIN_USER=admin
+ADMIN_PASS=admin
 
 ok() { echo "  PASS  $*"; PASS=$((PASS + 1)); }
 bad() { echo "  FAIL  $*"; FAIL=$((FAIL + 1)); }
@@ -48,7 +51,8 @@ login() {
       echo "panel did not come up"; docker logs panel 2>&1 | tail -60; exit 1
     fi
     sleep 2
-    TOKEN=$(curl -s -X POST "$API/admin/token" -d 'username=admin&password=admin' | jq -r .access_token 2>/dev/null)
+    TOKEN=$(curl -s -X POST "$API/admin/token" -d "username=$ADMIN_USER&password=$ADMIN_PASS" |
+      jq -r .access_token 2>/dev/null)
   done
 }
 
@@ -152,6 +156,11 @@ USER_JSON='{"username":"%s","proxies":{"vmess":{},"vless":{},"trojan":{},"shadow
 echo "== [$DB] 1. existing install on $OLD_IMAGE"
 wait_db
 start_panel "$OLD_IMAGE"
+code=$(api POST /admin '{"username":"owner","password":"owner-pass-1","is_sudo":true}')
+check "old panel: create sudo admin owner" [ "$code" = 200 ]
+ADMIN_USER=owner
+ADMIN_PASS=owner-pass-1
+login
 code=$(api POST /user "$(printf "$USER_JSON" alice)")
 check "old panel: create user alice" [ "$code" = 200 ]
 code=$(api POST /node '{"name":"old-node","address":"192.0.2.10","add_as_new_host":true}')
