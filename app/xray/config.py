@@ -358,6 +358,17 @@ class XRayConfig(dict):
     def copy(self):
         return deepcopy(self)
 
+    def filter_inbounds(self, allowed_tags) -> XRayConfig:
+        """Return a deep copy holding only the allowed user inbounds.
+
+        Inbounds Marzban doesn't manage (API_INBOUND, excluded tags, non-proxy protocols)
+        are kept, and self is never modified.
+        """
+        removed = set(self.inbounds_by_tag) - set(allowed_tags)
+        config = self.copy()
+        config['inbounds'] = [i for i in config['inbounds'] if i['tag'] not in removed]
+        return config
+
     def include_db_users(self) -> XRayConfig:
         config = self.copy()
 

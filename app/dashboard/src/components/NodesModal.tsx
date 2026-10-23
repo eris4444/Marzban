@@ -13,8 +13,11 @@ import {
   ButtonProps,
   chakra,
   Checkbox,
+  CheckboxGroup,
   Collapse,
   FormControl,
+  FormErrorMessage,
+  FormHelperText,
   FormLabel,
   HStack,
   IconButton,
@@ -29,6 +32,8 @@ import {
   Tooltip,
   useToast,
   VStack,
+  Wrap,
+  WrapItem,
 } from "@chakra-ui/react";
 import {
   EyeIcon,
@@ -326,6 +331,10 @@ const NodeForm: NodeFormType = ({
 }) => {
   const { t } = useTranslation();
   const [showCertificate, setShowCertificate] = useState(false);
+  const { inbounds } = useDashboard();
+  const inboundTags = [...inbounds.values()]
+    .flat()
+    .map((inbound) => inbound.tag);
   const { data: nodeSettings, isLoading: nodeSettingsLoading } = useQuery({
     queryKey: "node-settings",
     queryFn: () =>
@@ -510,6 +519,57 @@ const NodeForm: NodeFormType = ({
             />
           </Box>
         </HStack>
+        <FormControl isInvalid={!!form.formState?.errors?.allowed_inbounds}>
+          <FormLabel>{t("nodes.allowedInbounds")}</FormLabel>
+          <Controller
+            name="allowed_inbounds"
+            control={form.control}
+            render={({ field }) => {
+              const selected = field.value || [];
+              // keep tags that left the core config visible so they can be unchecked
+              const tags = inboundTags.concat(
+                selected.filter((tag) => !inboundTags.includes(tag))
+              );
+              return (
+                <CheckboxGroup
+                  value={selected}
+                  onChange={(value) => field.onChange(value as string[])}
+                >
+                  <Wrap spacingX={4} spacingY={1}>
+                    {tags.map((tag) => (
+                      <WrapItem key={tag}>
+                        <Checkbox
+                          size="sm"
+                          value={tag}
+                          colorScheme={
+                            inboundTags.includes(tag) ? "primary" : "red"
+                          }
+                        >
+                          <Text
+                            fontSize="sm"
+                            textDecoration={
+                              inboundTags.includes(tag)
+                                ? undefined
+                                : "line-through"
+                            }
+                          >
+                            {tag}
+                          </Text>
+                        </Checkbox>
+                      </WrapItem>
+                    ))}
+                  </Wrap>
+                </CheckboxGroup>
+              );
+            }}
+          />
+          <FormHelperText fontSize="xs">
+            {t("nodes.allowedInboundsHint")}
+          </FormHelperText>
+          <FormErrorMessage>
+            {form.formState?.errors?.allowed_inbounds?.message}
+          </FormErrorMessage>
+        </FormControl>
         {addAsHost && (
           <FormControl py={1}>
             <Checkbox {...form.register("add_as_new_host")}>

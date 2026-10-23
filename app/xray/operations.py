@@ -56,6 +56,12 @@ def _alter_inbound_user(api: XRayAPI, inbound_tag: str, account: Account):
         pass
 
 
+def _node_has_inbound(node: XRayNode, inbound_tag: str) -> bool:
+    # nodes without an inbound selection serve every inbound
+    allowed = getattr(node, "allowed_inbounds", None)
+    return not allowed or inbound_tag in allowed
+
+
 def add_user(dbuser: "DBUser"):
     user = UserResponse.model_validate(dbuser)
     email = f"{dbuser.id}.{dbuser.username}"
@@ -86,7 +92,7 @@ def add_user(dbuser: "DBUser"):
 
             _add_user_to_inbound(xray.api, inbound_tag, account)  # main core
             for node in list(xray.nodes.values()):
-                if node.connected and node.started:
+                if _node_has_inbound(node, inbound_tag) and node.connected and node.started:
                     _add_user_to_inbound(node.api, inbound_tag, account)
 
 
@@ -96,7 +102,7 @@ def remove_user(dbuser: "DBUser"):
     for inbound_tag in xray.config.inbounds_by_tag:
         _remove_user_from_inbound(xray.api, inbound_tag, email)
         for node in list(xray.nodes.values()):
-            if node.connected and node.started:
+            if _node_has_inbound(node, inbound_tag) and node.connected and node.started:
                 _remove_user_from_inbound(node.api, inbound_tag, email)
 
 
@@ -132,7 +138,7 @@ def update_user(dbuser: "DBUser"):
 
             _alter_inbound_user(xray.api, inbound_tag, account)  # main core
             for node in list(xray.nodes.values()):
-                if node.connected and node.started:
+                if _node_has_inbound(node, inbound_tag) and node.connected and node.started:
                     _alter_inbound_user(node.api, inbound_tag, account)
 
     for inbound_tag in xray.config.inbounds_by_tag:
@@ -141,7 +147,7 @@ def update_user(dbuser: "DBUser"):
         # remove disabled inbounds
         _remove_user_from_inbound(xray.api, inbound_tag, email)
         for node in list(xray.nodes.values()):
-            if node.connected and node.started:
+            if _node_has_inbound(node, inbound_tag) and node.connected and node.started:
                 _remove_user_from_inbound(node.api, inbound_tag, email)
 
 
@@ -188,6 +194,20 @@ def _change_node_status(node_id: int, status: NodeStatus, message: str = None, v
             db.rollback()
 
 
+def _node_config(node: XRayNode, dbnode: "DBNode", config):
+    """Limit the config to the node's allowed inbounds; no selection keeps all of them."""
+    node.allowed_inbounds = set(dbnode.allowed_inbounds or [])
+    if not node.allowed_inbounds:
+        return config
+
+    unknown = node.allowed_inbounds - set(config.inbounds_by_tag)
+    if unknown:
+        logger.warning(f"Node \"{dbnode.name}\" allows inbounds missing from the core config: "
+                       f"{', '.join(sorted(unknown))}")
+
+    return config.filter_inbounds(node.allowed_inbounds)
+
+
 global _connecting_nodes
 _connecting_nodes = {}
 
@@ -220,7 +240,7 @@ def connect_node(node_id, config=None):
         if config is None:
             config = xray.config.include_db_users()
 
-        node.start(config)
+        node.start(_node_config(node, dbnode, config))
         version = node.get_version()
         _change_node_status(node_id, NodeStatus.connected, version=version)
         logger.info(f"Connected to \"{dbnode.name}\" node, xray run on v{version}")
@@ -258,7 +278,7 @@ def restart_node(node_id, config=None):
         if config is None:
             config = xray.config.include_db_users()
 
-        node.restart(config)
+        node.restart(_node_config(node, dbnode, config))
         logger.info(f"Xray core of \"{dbnode.name}\" node restarted")
     except Exception as e:
         _change_node_status(node_id, NodeStatus.error, message=str(e))

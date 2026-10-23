@@ -309,6 +309,7 @@ class Node(Base):
     user_usages = relationship("NodeUserUsage", back_populates="node", cascade="all, delete-orphan")
     usages = relationship("NodeUsage", back_populates="node", cascade="all, delete-orphan")
     usage_coefficient = Column(Float, nullable=False, server_default=text("1.0"), default=1)
+    allowed_inbounds = Column(JSON, nullable=True)  # inbound tags sent to this node, NULL = all
 
 
 class NodeUserUsage(Base):

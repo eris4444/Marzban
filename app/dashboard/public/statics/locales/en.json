@@ -96,6 +96,8 @@
   "nodes.addNewMarzbanNode": "Add New Marzban Node",
   "nodes.addNode": "Add Node",
   "nodes.addNodeSuccess": "Node {{name}} added successfully",
+  "nodes.allowedInbounds": "Inbounds on this node",
+  "nodes.allowedInboundsHint": "Only the checked inbounds run on this node. Leave all unchecked to run every inbound.",
   "nodes.apply": "editNode",
   "nodes.certificate": "Certificate",
   "nodes.connection-hint": "To setup a Marzban Node, you need to set this certificate on the node to initialize a secure connection between main server and the node",

@@ -1307,7 +1307,8 @@ def create_node(db: Session, node: NodeCreate) -> Node:
     dbnode = Node(name=node.name,
                   address=node.address,
                   port=node.port,
-                  api_port=node.api_port)
+                  api_port=node.api_port,
+                  allowed_inbounds=node.allowed_inbounds or None)
 
     db.add(dbnode)
     db.commit()
@@ -1364,6 +1365,10 @@ def update_node(db: Session, dbnode: Node, modify: NodeModify) -> Node:
 
     if modify.usage_coefficient:
         dbnode.usage_coefficient = modify.usage_coefficient
+
+    if modify.allowed_inbounds is not None:
+        # an empty list clears the selection, so the node gets all inbounds again
+        dbnode.allowed_inbounds = modify.allowed_inbounds or None
 
     db.commit()
     db.refresh(dbnode)
