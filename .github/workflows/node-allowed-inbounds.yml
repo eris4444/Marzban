@@ -41,7 +41,7 @@ jobs:
 
       - name: Build image
         run: >
-          docker build -t marzban:test
+          docker build -f Dockerfile.node-inbounds -t marzban:test
           --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" .
 
       - name: Unit tests

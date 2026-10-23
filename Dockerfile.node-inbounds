@@ -1,0 +1,6 @@
+# This branch's code on top of the official v0.8.4 image, so the Python packages and the Xray
+# binary stay exactly the ones gozargah/marzban:v0.8.4 (= :latest) ships with.
+# app/dashboard/build must be up to date (it is committed; CI rebuilds it before this step).
+FROM gozargah/marzban:v0.8.4
+
+COPY . /code

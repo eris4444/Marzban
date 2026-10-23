@@ -27,9 +27,17 @@ v0.8.4, upgrades it, and checks that every old row still holds exactly the same 
 3. `cd /opt/marzban && docker compose pull && docker compose up -d`
    (the container runs `alembic upgrade head` on start).
 
-To build the image yourself instead:
-`git clone -b feature/node-allowed-inbounds https://github.com/eris4444/Marzban /opt/marzban-src && docker build -t marzban:node-inbounds /opt/marzban-src`
-and use `image: marzban:node-inbounds`.
+The image is the official `gozargah/marzban:v0.8.4` image with this branch's code copied on top
+(`Dockerfile.node-inbounds`), so Python packages and the Xray binary are exactly the ones you run
+today. To build it yourself instead:
+
+```bash
+git clone -b feature/node-allowed-inbounds https://github.com/eris4444/Marzban /opt/marzban-src
+cd /opt/marzban-src && docker build -f Dockerfile.node-inbounds -t marzban:node-inbounds .
+```
+
+and use `image: marzban:node-inbounds`. (Upstream's own `Dockerfile` no longer builds today: current
+setuptools dropped `pkg_resources`, which APScheduler 3.9.1 imports.)
 
 ## Going back to upstream
 
