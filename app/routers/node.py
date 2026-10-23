@@ -27,13 +27,13 @@ router = APIRouter(
 
 
 def add_host_if_needed(new_node: NodeCreate, db: Session):
-    """Add a host if specified in the new node settings."""
+    """Add a host if specified in the new node settings, only for the inbounds the node runs."""
     if new_node.add_as_new_host:
         host = ProxyHost(
             remark=f"{new_node.name} ({{USERNAME}}) [{{PROTOCOL}} - {{TRANSPORT}}]",
             address=new_node.address,
         )
-        for inbound_tag in xray.config.inbounds_by_tag:
+        for inbound_tag in new_node.allowed_inbounds or xray.config.inbounds_by_tag:
             crud.add_host(db, inbound_tag, host)
         xray.hosts.update()
 

@@ -9,6 +9,8 @@ box empty and the node runs all inbounds, exactly like upstream Marzban.
   are always kept.
 - `xray_config.json` and the panel's own core are not touched: the main server keeps every inbound.
 - The selection is applied on node connect, reconnect, edit and "restart core".
+- "Add this node as a new host" on a new node creates hosts only for the inbounds it runs
+  (for every inbound when nothing is selected).
 - API: `allowed_inbounds` (list of inbound tags, or `null`) on `POST /api/node`, `PUT /api/node/{id}`
   and in every node response. On `PUT`, omit it (or send `null`) to keep the current selection and
   send `[]` to clear it. Unknown tags are rejected with 422.
@@ -46,10 +48,10 @@ setuptools dropped `pkg_resources`, which APScheduler 3.9.1 imports.)
 
 ## Things to keep in mind
 
-- A user whose inbounds are all missing on a node can't connect through that node. Hosts and
-  subscriptions are unchanged, so links pointing at that node's address for an inbound it doesn't
-  run will fail. Remove or disable those hosts (and don't tick "add as new host for every inbound"
-  for restricted nodes, it still adds a host for every inbound).
+- A user whose inbounds are all missing on a node can't connect through that node. Subscriptions
+  are unchanged and existing hosts are never edited, so a host that points at a node's address for
+  an inbound the node doesn't run (an older host, or one left after you changed the selection)
+  gives a link that fails. Remove or disable such hosts in Host Settings.
 - An inbound without its own port (served through `XRAY_FALLBACKS_INBOUND_TAG`) can only be chosen
   together with that fallbacks inbound.
 - If you later delete an inbound from `xray_config.json`, nodes that listed only that tag run no

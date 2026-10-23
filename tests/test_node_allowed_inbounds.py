@@ -13,6 +13,7 @@ from app import xray
 from app.db import GetDB, crud
 from app.db.base import Base, engine
 from app.models.node import NodeCreate, NodeModify, NodeResponse
+from app.routers.node import add_host_if_needed
 from app.xray import operations
 
 USER_TAGS = {"VMESS_TCP", "VLESS_TCP", "TROJAN_TCP", "FALLBACK_MAIN", "WS_CHILD"}
@@ -134,3 +135,17 @@ def test_crud_saves_changes_and_clears_the_selection(db):
     crud.update_node(db, node, NodeModify(allowed_inbounds=[]))
     assert crud.get_node_by_id(db, node.id).allowed_inbounds is None
     assert NodeResponse.model_validate(node).allowed_inbounds is None
+
+
+def test_add_as_new_host_only_covers_the_nodes_inbounds(db):
+    def tags_with_host(address):
+        return {tag for tag in xray.config.inbounds_by_tag
+                if any(host.address == address for host in crud.get_hosts(db, tag))}
+
+    add_host_if_needed(NodeCreate(name="a", address="192.0.2.50", allowed_inbounds=["VMESS_TCP"]), db)
+    add_host_if_needed(NodeCreate(name="b", address="192.0.2.51"), db)
+    add_host_if_needed(NodeCreate(name="c", address="192.0.2.52", add_as_new_host=False), db)
+
+    assert tags_with_host("192.0.2.50") == {"VMESS_TCP"}
+    assert tags_with_host("192.0.2.51") == set(xray.config.inbounds_by_tag)
+    assert tags_with_host("192.0.2.52") == set()

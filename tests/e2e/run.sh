@@ -226,6 +226,20 @@ check "rejected requests added no node" [ "$(body '[.[].name] | sort')" = '["nod
 check "rejected edit kept node-a's selection" \
   [ "$(body '.[] | select(.name == "node-a") | .allowed_inbounds')" = '["VMESS_TCP"]' ]
 
+# tags that have a host with this address
+hosts_for() {
+  api GET /hosts >/dev/null
+  jq -c --arg a "$1" '[to_entries[] | select(any(.value[]; .address == $a)) | .key]' "$WORK/resp"
+}
+code=$(api POST /node '{"name":"node-d","address":"192.0.2.30","add_as_new_host":true,"allowed_inbounds":["VMESS_TCP"]}')
+check "create node-d with [VMESS_TCP] and add_as_new_host" [ "$code" = 200 ]
+NODE_D=$(body .id)
+for _ in $(seq 30); do [ "$(hosts_for 192.0.2.30)" != '[]' ] && break; sleep 1; done
+sleep 2
+check "node-d got a host only for VMESS_TCP" [ "$(hosts_for 192.0.2.30)" = '["VMESS_TCP"]' ]
+code=$(api DELETE "/node/$NODE_D")
+check "delete node-d" [ "$code" = 200 ]
+
 wait_connected node-a node-b node-c
 expect_ports "node-a runs only VMESS_TCP (+ non-user inbound)" "$IP_A" "20001 20006" "20002 20003 20004"
 expect_ports "node-b runs only VLESS_TCP + TROJAN_TCP" "$IP_B" "20002 20003 20006" "20001 20004"

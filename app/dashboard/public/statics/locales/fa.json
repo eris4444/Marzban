@@ -98,7 +98,7 @@
   "login.welcomeBack": "خوش آمدید, لطفا اطلاعات خود را وارد کنید",
   "memoryUsage": "مصرف حافظه",
   "next": "بعدی",
-  "nodes.addHostForEveryInbound": "استفاده از این گره به عنوان میزبان تمام ورودی‌ها",
+  "nodes.addHostForEveryInbound": "استفاده از این گره به عنوان میزبان تمام ورودی‌هایی که اجرا می‌کند",
   "nodes.addNewMarzbanNode": "افزودن گره مرزبان",
   "nodes.addNode": "افزودن گره",
   "nodes.addNodeSuccess": "گره {{name}} با موفقیت افزوده شد",
