@@ -1,0 +1,84 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "routing": {
+    "rules": [
+      {
+        "inboundTag": [
+          "VMESS_TCP"
+        ],
+        "outboundTag": "DIRECT",
+        "type": "field"
+      },
+      {
+        "ip": [
+          "geoip:private"
+        ],
+        "outboundTag": "BLOCK",
+        "type": "field"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "tag": "VMESS_TCP",
+      "listen": "0.0.0.0",
+      "port": 20001,
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      }
+    },
+    {
+      "tag": "VLESS_TCP",
+      "listen": "0.0.0.0",
+      "port": 20002,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      }
+    },
+    {
+      "tag": "TROJAN_TCP",
+      "listen": "0.0.0.0",
+      "port": 20003,
+      "protocol": "trojan",
+      "settings": {
+        "clients": []
+      }
+    },
+    {
+      "tag": "SS_TCP",
+      "listen": "0.0.0.0",
+      "port": 20004,
+      "protocol": "shadowsocks",
+      "settings": {
+        "clients": [],
+        "network": "tcp,udp"
+      }
+    },
+    {
+      "tag": "EXTRA_DOKO",
+      "listen": "0.0.0.0",
+      "port": 20006,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 9,
+        "network": "tcp"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "DIRECT"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "BLOCK"
+    }
+  ]
+}

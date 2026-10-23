@@ -1,0 +1,76 @@
+name: Node allowed inbounds
+
+on:
+  push:
+    branches:
+      - "feature/node-allowed-inbounds"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup nodejs
+        uses: actions/setup-node@v4
+        with:
+          node-version: 16.17.0
+
+      - name: Install dashboard dependencies
+        working-directory: ./app/dashboard
+        run: npm ci
+
+      - name: Build dashboard (runs tsc first)
+        working-directory: ./app/dashboard
+        run: |
+          VITE_BASE_API=/api/ npm run build --if-present -- --outDir build --assetsDir statics
+          cp ./build/index.html ./build/404.html
+
+      - name: Upload dashboard build
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-build
+          path: app/dashboard/build
+
+      - name: Build image
+        run: >
+          docker build -t marzban:test
+          --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" .
+
+      - name: Unit tests
+        run: >
+          docker run --rm -e PYTHONDONTWRITEBYTECODE=1 -v "$PWD/tests:/code/tests:ro" marzban:test
+          bash -c "pip install -q pytest && python -m pytest -v -p no:cacheprovider tests"
+
+      - name: Prepare end-to-end tests
+        run: |
+          sudo systemctl stop mysql || true
+          for image in gozargah/marzban:v0.8.4 gozargah/marzban-node:latest mysql:8.0 mariadb:lts; do
+            docker pull -q "$image"
+          done
+
+      - name: End-to-end (SQLite)
+        run: bash tests/e2e/run.sh marzban:test sqlite
+
+      - name: End-to-end (MySQL 8)
+        run: bash tests/e2e/run.sh marzban:test mysql
+
+      - name: End-to-end (MariaDB)
+        run: bash tests/e2e/run.sh marzban:test mariadb
+
+      - name: Push image to GitHub Container Registry
+        if: github.event_name == 'push'
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "$owner" --password-stdin
+          for tag in node-inbounds "node-inbounds-${GITHUB_SHA::7}"; do
+            docker tag marzban:test "ghcr.io/$owner/marzban:$tag"
+            docker push "ghcr.io/$owner/marzban:$tag"
+          done
