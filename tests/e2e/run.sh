@@ -258,6 +258,32 @@ check "panel log says what the main core leaves out" \
 check "panel log says which inbounds node-b gets" \
   bash -c "docker logs panel 2>&1 | grep -qF 'Node \"node-b\" gets only these inbounds: VLESS_TCP, TROJAN_TCP'"
 
+MARZBAN_CONTAINER=panel bash "$HERE/../../node-inbounds-check.sh" >"$WORK/check.log" 2>&1
+cat "$WORK/check.log"
+check "check script sees the feature code" grep -qF "per-node inbound code: present" "$WORK/check.log"
+check "check script lists what the main server leaves out" \
+  grep -qF "main server leaves out: TROJAN_TCP, VLESS_TCP, VMESS_TCP" "$WORK/check.log"
+check "check script finds no problems" grep -qx "no problems found" "$WORK/check.log"
+# something else answering on node-b's VMESS_TCP port must show up as a problem
+docker exec -d node-b python3 -c '
+import socket, time
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("0.0.0.0", 20001))
+s.listen(8)
+s.settimeout(1)
+end = time.time() + 40
+while time.time() < end:
+    try:
+        s.accept()[0].close()
+    except OSError:
+        pass'
+expect_ports "stray listener on node-b:20001" "$IP_B" 20001 ""
+MARZBAN_CONTAINER=panel bash "$HERE/../../node-inbounds-check.sh" >"$WORK/check2.log" 2>&1
+check "check script reports the open VMESS_TCP port on node-b" \
+  grep -qF 'PROBLEM: VMESS_TCP on node "node-b": should not run, but the port is open' "$WORK/check2.log"
+expect_ports "stray listener on node-b gone" "$IP_B" "" 20001
+
 before=$(log_count 'Connected to "node-e" node')
 code=$(api PUT "/node/$NODE_E" '{"allowed_inbounds":["VLESS_TCP"]}')
 check "edit rpyc node-e to [VLESS_TCP]" [ "$code" = 200 ]

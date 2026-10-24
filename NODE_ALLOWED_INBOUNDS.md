@@ -53,6 +53,9 @@ setuptools dropped `pkg_resources`, which APScheduler 3.9.1 imports.)
 
 ## Checking what a node runs
 
+- `bash node-inbounds-check.sh` on the main server (it changes nothing) prints, for every inbound,
+  where it should run and whether its port really listens on the main server and on each node,
+  then where every subscription host points, and ends with a `PROBLEM:` line for each mismatch.
 - Panel log, after saving a node: `docker compose logs marzban | grep "gets only these inbounds"`
   prints e.g. `Node "DE" gets only these inbounds: VLESS TCP REALITY`.
 - On the node server: `ss -ltnp | grep xray` lists the ports its Xray really listens on.
