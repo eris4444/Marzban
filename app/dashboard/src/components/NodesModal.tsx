@@ -15,6 +15,7 @@ import {
   Checkbox,
   CheckboxGroup,
   Collapse,
+  Flex,
   FormControl,
   FormErrorMessage,
   FormHelperText,
@@ -32,8 +33,6 @@ import {
   Tooltip,
   useToast,
   VStack,
-  Wrap,
-  WrapItem,
 } from "@chakra-ui/react";
 import {
   EyeIcon,
@@ -557,32 +556,31 @@ const NodeForm: NodeFormType = ({
                     field.onChange(all ? null : checked);
                   }}
                 >
-                  <Wrap spacingX={4} spacingY={1}>
+                  <Flex wrap="wrap" columnGap={4} rowGap={1}>
                     {tags.map((tag, index) => (
-                      <WrapItem key={tag}>
-                        <Checkbox
-                          // own id, otherwise every box takes the FormControl's id
-                          id={`${inboundsFieldId}-${index}`}
-                          size="sm"
-                          value={tag}
-                          colorScheme={
-                            inboundTags.includes(tag) ? "primary" : "red"
+                      <Checkbox
+                        key={tag}
+                        // own id, otherwise every box takes the FormControl's id
+                        id={`${inboundsFieldId}-${index}`}
+                        size="sm"
+                        value={tag}
+                        colorScheme={
+                          inboundTags.includes(tag) ? "primary" : "red"
+                        }
+                      >
+                        <Text
+                          fontSize="sm"
+                          textDecoration={
+                            inboundTags.includes(tag)
+                              ? undefined
+                              : "line-through"
                           }
                         >
-                          <Text
-                            fontSize="sm"
-                            textDecoration={
-                              inboundTags.includes(tag)
-                                ? undefined
-                                : "line-through"
-                            }
-                          >
-                            {tag}
-                          </Text>
-                        </Checkbox>
-                      </WrapItem>
+                          {tag}
+                        </Text>
+                      </Checkbox>
                     ))}
-                  </Wrap>
+                  </Flex>
                 </CheckboxGroup>
               );
             }}
