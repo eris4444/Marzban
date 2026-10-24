@@ -20,6 +20,7 @@ class XRayCore:
         self.version = self.get_version()
         self.process = None
         self.restarting = False
+        self.excluded_inbounds = set()  # inbounds picked for a node, left out of this core
 
         self._logs_buffer = deque(maxlen=100)
         self._temp_log_buffers = {}
@@ -106,6 +107,14 @@ class XRayCore:
     def start(self, config: XRayConfig):
         if self.started is True:
             raise RuntimeError("Xray is started already")
+
+        # an inbound picked for a node runs only on nodes, never on the main server
+        from app.xray.operations import node_only_inbounds
+        self.excluded_inbounds = node_only_inbounds()
+        if self.excluded_inbounds:
+            config = config.filter_inbounds(set(config.inbounds_by_tag) - self.excluded_inbounds)
+            logger.info(f"Main core leaves out inbounds picked for nodes: "
+                        f"{', '.join(sorted(self.excluded_inbounds))}")
 
         if config.get('log', {}).get('logLevel') in ('none', 'error'):
             config['log']['logLevel'] = 'warning'

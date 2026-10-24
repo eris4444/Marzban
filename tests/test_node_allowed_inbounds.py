@@ -137,6 +137,23 @@ def test_crud_saves_changes_and_clears_the_selection(db):
     assert NodeResponse.model_validate(node).allowed_inbounds is None
 
 
+def test_inbounds_picked_for_nodes_leave_the_main_core(db):
+    crud.create_node(db, NodeCreate(name="a", address="192.0.2.1", allowed_inbounds=["VMESS_TCP"]))
+    crud.create_node(db, NodeCreate(name="b", address="192.0.2.2"))  # runs everything, claims nothing
+    disabled = crud.create_node(db, NodeCreate(name="c", address="192.0.2.3",
+                                               allowed_inbounds=["VLESS_TCP", "VMESS_TCP"]))
+    crud.update_node(db, disabled, NodeModify(status="disabled"))
+
+    assert operations.node_only_inbounds() == {"VMESS_TCP", "VLESS_TCP"}
+
+
+def test_users_skip_the_main_core_for_node_only_inbounds(monkeypatch):
+    monkeypatch.setattr(xray.core, "excluded_inbounds", {"VMESS_TCP"})
+
+    assert not operations._core_has_inbound("VMESS_TCP")
+    assert operations._core_has_inbound("VLESS_TCP")
+
+
 def test_add_as_new_host_only_covers_the_nodes_inbounds(db):
     def tags_with_host(address):
         return {tag for tag in xray.config.inbounds_by_tag

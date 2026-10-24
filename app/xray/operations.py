@@ -1,4 +1,5 @@
 from functools import lru_cache
+from threading import Lock
 from typing import TYPE_CHECKING
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -62,6 +63,28 @@ def _node_has_inbound(node: XRayNode, inbound_tag: str) -> bool:
     return not allowed or inbound_tag in allowed
 
 
+def _core_has_inbound(inbound_tag: str) -> bool:
+    # inbounds picked for a node are left out of the main core
+    return inbound_tag not in xray.core.excluded_inbounds
+
+
+def node_only_inbounds() -> set:
+    """Inbounds picked for at least one node (disabled ones too); nodes running every inbound don't count."""
+    with GetDB() as db:
+        return {tag for dbnode in crud.get_nodes(db) for tag in dbnode.allowed_inbounds or []}
+
+
+_sync_core_lock = Lock()
+
+
+@threaded_function
+def sync_core_inbounds():
+    """Restart the main core if the inbounds picked for nodes changed since it started."""
+    with _sync_core_lock:
+        if node_only_inbounds() != xray.core.excluded_inbounds:
+            xray.core.restart(xray.config.include_db_users())
+
+
 def add_user(dbuser: "DBUser"):
     user = UserResponse.model_validate(dbuser)
     email = f"{dbuser.id}.{dbuser.username}"
@@ -90,7 +113,8 @@ def add_user(dbuser: "DBUser"):
             ):
                 account.flow = XTLSFlows.NONE
 
-            _add_user_to_inbound(xray.api, inbound_tag, account)  # main core
+            if _core_has_inbound(inbound_tag):
+                _add_user_to_inbound(xray.api, inbound_tag, account)  # main core
             for node in list(xray.nodes.values()):
                 if _node_has_inbound(node, inbound_tag) and node.connected and node.started:
                     _add_user_to_inbound(node.api, inbound_tag, account)
@@ -100,7 +124,8 @@ def remove_user(dbuser: "DBUser"):
     email = f"{dbuser.id}.{dbuser.username}"
 
     for inbound_tag in xray.config.inbounds_by_tag:
-        _remove_user_from_inbound(xray.api, inbound_tag, email)
+        if _core_has_inbound(inbound_tag):
+            _remove_user_from_inbound(xray.api, inbound_tag, email)
         for node in list(xray.nodes.values()):
             if _node_has_inbound(node, inbound_tag) and node.connected and node.started:
                 _remove_user_from_inbound(node.api, inbound_tag, email)
@@ -136,7 +161,8 @@ def update_user(dbuser: "DBUser"):
             ):
                 account.flow = XTLSFlows.NONE
 
-            _alter_inbound_user(xray.api, inbound_tag, account)  # main core
+            if _core_has_inbound(inbound_tag):
+                _alter_inbound_user(xray.api, inbound_tag, account)  # main core
             for node in list(xray.nodes.values()):
                 if _node_has_inbound(node, inbound_tag) and node.connected and node.started:
                     _alter_inbound_user(node.api, inbound_tag, account)
@@ -145,7 +171,8 @@ def update_user(dbuser: "DBUser"):
         if inbound_tag in active_inbounds:
             continue
         # remove disabled inbounds
-        _remove_user_from_inbound(xray.api, inbound_tag, email)
+        if _core_has_inbound(inbound_tag):
+            _remove_user_from_inbound(xray.api, inbound_tag, email)
         for node in list(xray.nodes.values()):
             if _node_has_inbound(node, inbound_tag) and node.connected and node.started:
                 _remove_user_from_inbound(node.api, inbound_tag, email)

@@ -251,7 +251,10 @@ expect_ports "node-a runs only VMESS_TCP (+ non-user inbound)" "$IP_A" "20001 20
 expect_ports "node-b runs only VLESS_TCP + TROJAN_TCP" "$IP_B" "20002 20003 20006" "20001 20004"
 expect_ports "node-c (no selection) runs every inbound" "$IP_C" "$ALL_PORTS" ""
 expect_ports "rpyc node-e runs only TROJAN_TCP" "$IP_E" "20003 20006" "20001 20002 20004"
-expect_ports "main core still runs every inbound" 127.0.0.1 "$ALL_PORTS" ""
+expect_ports "main core dropped VMESS/VLESS/TROJAN (picked for nodes), keeps SS_TCP" \
+  127.0.0.1 "20004 20006" "20001 20002 20003"
+check "panel log says what the main core leaves out" \
+  bash -c "docker logs panel 2>&1 | grep -qF 'Main core leaves out inbounds picked for nodes: TROJAN_TCP, VLESS_TCP, VMESS_TCP'"
 check "panel log says which inbounds node-b gets" \
   bash -c "docker logs panel 2>&1 | grep -qF 'Node \"node-b\" gets only these inbounds: VLESS_TCP, TROJAN_TCP'"
 
@@ -267,6 +270,7 @@ check "edit node-a to [SS_TCP]" [ "$code" = 200 ]
 check "edit returns the new selection" [ "$(body .allowed_inbounds)" = '["SS_TCP"]' ]
 check "editing the selection reconnects node-a" wait_log_more 'Connected to "node-a" node' "$before"
 expect_ports "node-a now runs only SS_TCP" "$IP_A" "20004 20006" "20001 20002 20003"
+expect_ports "main core got VMESS_TCP back and dropped SS_TCP" 127.0.0.1 "20001 20006" "20002 20003 20004"
 
 before=$(log_count 'Xray core of "node-b" node restarted')
 code=$(api POST /core/restart)
@@ -274,7 +278,8 @@ check "restart core" [ "$code" = 200 ]
 check "core restart restarts node-b" wait_log_more 'Xray core of "node-b" node restarted' "$before"
 expect_ports "after core restart node-b still runs only its inbounds" "$IP_B" "20002 20003 20006" "20001 20004"
 expect_ports "after core restart node-a still runs only SS_TCP" "$IP_A" "20004 20006" "20001 20002 20003"
-expect_ports "after core restart main core runs every inbound" 127.0.0.1 "$ALL_PORTS" ""
+expect_ports "after core restart main core still leaves out SS/VLESS/TROJAN" \
+  127.0.0.1 "20001 20006" "20002 20003 20004"
 
 before=$(log_count 'Connected to "node-b" node')
 code=$(api POST "/node/$NODE_B/reconnect")
@@ -289,7 +294,7 @@ check "disable bob" [ "$code" = 200 ]
 code=$(api DELETE /user/bob)
 check "delete bob" [ "$code" = 200 ]
 sleep 5
-check "no 'handler not found' errors when pushing users to restricted nodes" \
+check "no 'handler not found' errors when pushing users to restricted nodes and main core" \
   bash -c "! docker logs panel 2>&1 | grep -E 'TagNotFoundError|handler not found'"
 
 before=$(log_count 'Connected to "node-a" node')
@@ -298,6 +303,13 @@ check "clear node-a selection with []" [ "$code" = 200 ]
 check "cleared selection is returned as null" [ "$(body .allowed_inbounds)" = null ]
 check "clearing reconnects node-a" wait_log_more 'Connected to "node-a" node' "$before"
 expect_ports "node-a runs every inbound again" "$IP_A" "$ALL_PORTS" ""
+expect_ports "main core got SS_TCP back" 127.0.0.1 "20001 20004 20006" "20002 20003"
+
+code=$(api PUT "/node/$NODE_B" '{"allowed_inbounds":[]}')
+check "clear node-b selection" [ "$code" = 200 ]
+code=$(api PUT "/node/$NODE_E" '{"allowed_inbounds":[]}')
+check "clear node-e selection" [ "$code" = 200 ]
+expect_ports "no node picks anything: main core runs every inbound again" 127.0.0.1 "$ALL_PORTS" ""
 
 echo "== [$DB] 4. roll back to $OLD_IMAGE"
 docker logs panel >"$WORK/panel-new.log" 2>&1

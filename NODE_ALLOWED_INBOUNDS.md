@@ -8,7 +8,11 @@ on that node and save. At least one box has to stay ticked.
 - Only the chosen user inbounds are sent to that node. Inbounds Marzban doesn't manage
   (`API_INBOUND`, tags in `XRAY_EXCLUDE_INBOUND_TAGS`, non-proxy protocols such as dokodemo-door)
   are always kept.
-- `xray_config.json` and the panel's own core are not touched: the main server keeps every inbound.
+- An inbound ticked on a node that doesn't run everything is **not built on the main server**: it
+  works only through the nodes, and only while such a node is up. It counts even while that node is
+  disabled; deleting the node or ticking every box on it gives the inbound back to the main server.
+  The main core restarts by itself when this set changes. Nodes with every box ticked still run
+  every inbound and take nothing away from the main server. `xray_config.json` is never edited.
 - The selection is applied on node connect, reconnect, edit and "restart core".
 - "Add this node as a new host" on a new node creates hosts only for the inbounds it runs
   (for every inbound when nothing is selected).
@@ -52,9 +56,9 @@ setuptools dropped `pkg_resources`, which APScheduler 3.9.1 imports.)
 - Panel log, after saving a node: `docker compose logs marzban | grep "gets only these inbounds"`
   prints e.g. `Node "DE" gets only these inbounds: VLESS TCP REALITY`.
 - On the node server: `ss -ltnp | grep xray` lists the ports its Xray really listens on.
-- A config whose address is the **main server** (for example the default `{SERVER_IP}` host) always
-  works: the main server keeps every inbound. Only configs that point at the node's address are
-  limited by the selection.
+- Panel log: `Main core leaves out inbounds picked for nodes: ...` lists what the main server dropped.
+- Subscriptions still list the main server's host (default `{SERVER_IP}`) for those inbounds; that
+  link no longer connects. Disable those hosts in Host Settings if you don't want them shown.
 
 ## Things to keep in mind
 

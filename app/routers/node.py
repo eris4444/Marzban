@@ -65,6 +65,7 @@ def add_node(
 
     bg.add_task(xray.operations.connect_node, node_id=dbnode.id)
     bg.add_task(add_host_if_needed, new_node, db)
+    xray.operations.sync_core_inbounds()
 
     logger.info(f'New node "{dbnode.name}" added')
     return dbnode
@@ -168,6 +169,7 @@ def modify_node(
     xray.operations.remove_node(updated_node.id)
     if updated_node.status != NodeStatus.disabled:
         bg.add_task(xray.operations.connect_node, node_id=updated_node.id)
+    xray.operations.sync_core_inbounds()
 
     logger.info(f'Node "{dbnode.name}" modified')
     return dbnode
@@ -193,6 +195,7 @@ def remove_node(
     """Delete a node and remove it from xray in the background."""
     crud.remove_node(db, dbnode)
     xray.operations.remove_node(dbnode.id)
+    xray.operations.sync_core_inbounds()
 
     logger.info(f'Node "{dbnode.name}" deleted')
     return {}
