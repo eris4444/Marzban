@@ -1,8 +1,9 @@
 # Per-node inbound selection
 
 This branch (`feature/node-allowed-inbounds`, based on Marzban v0.8.4) lets you choose, per node,
-which inbounds run on it. In **Nodes → add / edit node** tick the inbounds for that node; leave every
-box empty and the node runs all inbounds, exactly like upstream Marzban.
+which inbounds are built on it. In **Nodes → add / edit node** every inbound is ticked by default
+(the node runs all of them, exactly like upstream Marzban); untick the inbounds that must not exist
+on that node and save. At least one box has to stay ticked.
 
 - Only the chosen user inbounds are sent to that node. Inbounds Marzban doesn't manage
   (`API_INBOUND`, tags in `XRAY_EXCLUDE_INBOUND_TAGS`, non-proxy protocols such as dokodemo-door)
@@ -45,6 +46,15 @@ setuptools dropped `pkg_resources`, which APScheduler 3.9.1 imports.)
 
 1. While this image is still running: `docker compose exec marzban alembic downgrade 2b231de97dc3`
 2. Set the image back to `gozargah/marzban:latest` and run `docker compose up -d`.
+
+## Checking what a node runs
+
+- Panel log, after saving a node: `docker compose logs marzban | grep "gets only these inbounds"`
+  prints e.g. `Node "DE" gets only these inbounds: VLESS TCP REALITY`.
+- On the node server: `ss -ltnp | grep xray` lists the ports its Xray really listens on.
+- A config whose address is the **main server** (for example the default `{SERVER_IP}` host) always
+  works: the main server keeps every inbound. Only configs that point at the node's address are
+  limited by the selection.
 
 ## Things to keep in mind
 

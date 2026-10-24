@@ -5,8 +5,8 @@
 #
 # 1. installs upstream Marzban ($OLD_IMAGE), adds a user and a node,
 # 2. upgrades that same database with <new-image> and proves the old rows are untouched,
-# 3. runs three real marzban-node containers with different selections and checks which
-#    inbound ports each node really listens on (edit, core restart and reconnect included),
+# 3. runs four real marzban-node containers (rest and rpyc) with different selections and checks
+#    which inbound ports each node really listens on (edit, core restart and reconnect included),
 # 4. rolls the database back and starts upstream Marzban on it again.
 # Needs docker, curl, jq and python3 on Linux (GitHub's ubuntu runner).
 set -uo pipefail
@@ -31,7 +31,7 @@ bad() { echo "  FAIL  $*"; FAIL=$((FAIL + 1)); }
 check() { local name=$1; shift; if "$@"; then ok "$name"; else bad "$name"; fi; }
 
 cleanup() {
-  docker rm -f panel node-a node-b node-c e2e-db >/dev/null 2>&1
+  docker rm -f panel node-a node-b node-c node-e e2e-db >/dev/null 2>&1
   docker network rm e2e-net >/dev/null 2>&1
   return 0
 }
@@ -188,21 +188,24 @@ api GET /users >/dev/null
 check "user alice still there" [ "$(body '[.users[].username]')" = '["alice"]' ]
 expect_ports "main core runs every inbound" 127.0.0.1 "$ALL_PORTS" ""
 
-echo "== [$DB] 3. three real nodes with different selections"
+echo "== [$DB] 3. real nodes with different selections (a, b, c: rest; e: rpyc)"
 api GET /node/settings >/dev/null
 jq -r .certificate "$WORK/resp" >"$WORK/client.pem"
 docker network create e2e-net >/dev/null
-for n in a b c; do
+for n in a b c e; do
+  protocol=rest
+  [ "$n" = e ] && protocol=rpyc
   mkdir -p "$WORK/node-$n"
   cp "$WORK/client.pem" "$WORK/node-$n/ssl_client_cert.pem"
-  docker run -d --name "node-$n" --network e2e-net -e SERVICE_PROTOCOL=rest \
+  docker run -d --name "node-$n" --network e2e-net -e SERVICE_PROTOCOL=$protocol \
     -e SSL_CLIENT_CERT_FILE=/var/lib/marzban-node/ssl_client_cert.pem \
     -v "$WORK/node-$n:/var/lib/marzban-node" "$NODE_IMAGE" >/dev/null
 done
-IP_A=$(ip_of node-a); IP_B=$(ip_of node-b); IP_C=$(ip_of node-c)
+IP_A=$(ip_of node-a); IP_B=$(ip_of node-b); IP_C=$(ip_of node-c); IP_E=$(ip_of node-e)
 expect_ports "node services listening" "$IP_A" 62050 ""
 expect_ports "node services listening" "$IP_B" 62050 ""
 expect_ports "node services listening" "$IP_C" 62050 ""
+expect_ports "node services listening (rpyc)" "$IP_E" 62050 ""
 
 code=$(api POST /node "{\"name\":\"node-a\",\"address\":\"$IP_A\",\"add_as_new_host\":false,\"allowed_inbounds\":[\"VMESS_TCP\"]}")
 check "create node-a with [VMESS_TCP]" [ "$code" = 200 ]
@@ -215,6 +218,9 @@ NODE_B=$(body .id)
 code=$(api POST /node "{\"name\":\"node-c\",\"address\":\"$IP_C\",\"add_as_new_host\":false}")
 check "create node-c without a selection" [ "$code" = 200 ]
 check "node-c selection is null" [ "$(body .allowed_inbounds)" = null ]
+code=$(api POST /node "{\"name\":\"node-e\",\"address\":\"$IP_E\",\"add_as_new_host\":false,\"allowed_inbounds\":[\"TROJAN_TCP\"]}")
+check "create rpyc node-e with [TROJAN_TCP]" [ "$code" = 200 ]
+NODE_E=$(body .id)
 
 code=$(api POST /node '{"name":"bad","address":"192.0.2.20","allowed_inbounds":["NOPE"]}')
 check "unknown tag rejected on create (422)" [ "$code" = 422 ]
@@ -222,7 +228,7 @@ check "error names the field" grep -q "Inbound NOPE doesn't exist" "$WORK/resp"
 code=$(api PUT "/node/$NODE_A" '{"allowed_inbounds":["VMESS_TCP","NOPE"]}')
 check "unknown tag rejected on edit (422)" [ "$code" = 422 ]
 api GET /nodes >/dev/null
-check "rejected requests added no node" [ "$(body '[.[].name] | sort')" = '["node-a","node-b","node-c","old-node"]' ]
+check "rejected requests added no node" [ "$(body '[.[].name] | sort')" = '["node-a","node-b","node-c","node-e","old-node"]' ]
 check "rejected edit kept node-a's selection" \
   [ "$(body '.[] | select(.name == "node-a") | .allowed_inbounds')" = '["VMESS_TCP"]' ]
 
@@ -240,11 +246,20 @@ check "node-d got a host only for VMESS_TCP" [ "$(hosts_for 192.0.2.30)" = '["VM
 code=$(api DELETE "/node/$NODE_D")
 check "delete node-d" [ "$code" = 200 ]
 
-wait_connected node-a node-b node-c
+wait_connected node-a node-b node-c node-e
 expect_ports "node-a runs only VMESS_TCP (+ non-user inbound)" "$IP_A" "20001 20006" "20002 20003 20004"
 expect_ports "node-b runs only VLESS_TCP + TROJAN_TCP" "$IP_B" "20002 20003 20006" "20001 20004"
 expect_ports "node-c (no selection) runs every inbound" "$IP_C" "$ALL_PORTS" ""
+expect_ports "rpyc node-e runs only TROJAN_TCP" "$IP_E" "20003 20006" "20001 20002 20004"
 expect_ports "main core still runs every inbound" 127.0.0.1 "$ALL_PORTS" ""
+check "panel log says which inbounds node-b gets" \
+  bash -c "docker logs panel 2>&1 | grep -qF 'Node \"node-b\" gets only these inbounds: VLESS_TCP, TROJAN_TCP'"
+
+before=$(log_count 'Connected to "node-e" node')
+code=$(api PUT "/node/$NODE_E" '{"allowed_inbounds":["VLESS_TCP"]}')
+check "edit rpyc node-e to [VLESS_TCP]" [ "$code" = 200 ]
+check "editing reconnects node-e" wait_log_more 'Connected to "node-e" node' "$before"
+expect_ports "rpyc node-e now runs only VLESS_TCP" "$IP_E" "20002 20006" "20001 20003 20004"
 
 before=$(log_count 'Connected to "node-a" node')
 code=$(api PUT "/node/$NODE_A" '{"allowed_inbounds":["SS_TCP"]}')
@@ -291,16 +306,16 @@ run_panel "$IMAGE" alembic downgrade 2b231de97dc3 >"$WORK/downgrade.log" 2>&1
 cat "$WORK/downgrade.log"
 check "migration 4c2b9a7e1f36 -> 2b231de97dc3 rolled back" grep -q "4c2b9a7e1f36 -> 2b231de97dc3" "$WORK/downgrade.log"
 run_panel "$IMAGE" python /e2e/dump_db.py /out/rolled-back.json
-check "column removed, all 4 nodes kept" python3 -c '
+check "column removed, all 5 nodes kept" python3 -c '
 import json, sys
 nodes = json.load(open(sys.argv[1]))["nodes"]
-sys.exit(not (len(nodes) == 4 and not any("allowed_inbounds" in row for row in nodes)))
+sys.exit(not (len(nodes) == 5 and not any("allowed_inbounds" in row for row in nodes)))
 ' "$WORK/rolled-back.json"
 start_panel "$OLD_IMAGE"
 check "upstream image migrates the rolled-back database without errors" \
   bash -c "! docker logs panel 2>&1 | grep -iE \"can't locate revision|CommandError\""
 api GET /nodes >/dev/null
-check "upstream image lists all 4 nodes" [ "$(body 'length')" = 4 ]
+check "upstream image lists all 5 nodes" [ "$(body 'length')" = 5 ]
 api GET /users >/dev/null
 check "upstream image still has alice" [ "$(body '[.users[].username]')" = '["alice"]' ]
 
@@ -308,6 +323,6 @@ echo "== [$DB] $PASS passed, $FAIL failed"
 if ((FAIL > 0)); then
   echo "--- new panel log"; tail -150 "$WORK/panel-new.log" 2>/dev/null
   echo "--- current panel log"; docker logs panel 2>&1 | tail -60
-  for n in a b c; do echo "--- node-$n log"; docker logs "node-$n" 2>&1 | tail -30; done
+  for n in a b c e; do echo "--- node-$n log"; docker logs "node-$n" 2>&1 | tail -30; done
   exit 1
 fi

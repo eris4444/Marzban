@@ -205,6 +205,8 @@ def _node_config(node: XRayNode, dbnode: "DBNode", config):
         logger.warning(f"Node \"{dbnode.name}\" allows inbounds missing from the core config: "
                        f"{', '.join(sorted(unknown))}")
 
+    kept = [tag for tag in config.inbounds_by_tag if tag in node.allowed_inbounds]
+    logger.info(f"Node \"{dbnode.name}\" gets only these inbounds: {', '.join(kept) or 'none'}")
     return config.filter_inbounds(node.allowed_inbounds)
 
 

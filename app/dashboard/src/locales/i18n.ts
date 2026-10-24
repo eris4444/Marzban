@@ -40,6 +40,8 @@ i18n
                     import.meta.env.BASE_URL,
                     `statics/locales/{{lng}}.json`,
                 ]),
+                // revalidate, otherwise browsers keep an old copy for weeks after an update
+                requestOptions: { cache: "no-cache" },
             },
         },
         function (err, t) {

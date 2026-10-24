@@ -36,7 +36,7 @@ export const getNodeDefaultValues = (): NodeType => ({
   api_port: 62051,
   xray_version: "",
   usage_coefficient: 1,
-  allowed_inbounds: [],
+  allowed_inbounds: null,
 });
 
 export const FetchNodesQueryKey = "fetch-nodes-query-key";

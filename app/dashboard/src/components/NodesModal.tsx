@@ -363,7 +363,18 @@ const NodeForm: NodeFormType = ({
   }
 
   return (
-    <form onSubmit={form.handleSubmit((v) => mutate(v))}>
+    <form
+      onSubmit={form.handleSubmit((v) => {
+        // [] means "every inbound" to the API, so an empty selection can't be sent
+        if (v.allowed_inbounds && !v.allowed_inbounds.length) {
+          form.setError("allowed_inbounds", {
+            message: t("nodes.allowedInboundsEmpty"),
+          });
+          return;
+        }
+        mutate({ ...v, allowed_inbounds: v.allowed_inbounds ?? [] });
+      })}
+    >
       <VStack>
         {nodeSettings && nodeSettings.certificate && (
           <Alert status="info" alignItems="start">
@@ -529,7 +540,8 @@ const NodeForm: NodeFormType = ({
             name="allowed_inbounds"
             control={form.control}
             render={({ field }) => {
-              const selected = field.value || [];
+              // null means the node runs every inbound: all boxes checked
+              const selected = field.value ?? inboundTags;
               // keep tags that left the core config visible so they can be unchecked
               const tags = inboundTags.concat(
                 selected.filter((tag) => !inboundTags.includes(tag))
@@ -537,7 +549,13 @@ const NodeForm: NodeFormType = ({
               return (
                 <CheckboxGroup
                   value={selected}
-                  onChange={(value) => field.onChange(value as string[])}
+                  onChange={(value) => {
+                    const checked = value as string[];
+                    const all =
+                      checked.length === inboundTags.length &&
+                      inboundTags.every((tag) => checked.includes(tag));
+                    field.onChange(all ? null : checked);
+                  }}
                 >
                   <Wrap spacingX={4} spacingY={1}>
                     {tags.map((tag, index) => (
