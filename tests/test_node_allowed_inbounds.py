@@ -195,8 +195,8 @@ def test_main_core_starts_with_the_right_inbounds(db, monkeypatch, mode, expecte
     crud.create_node(db, NodeCreate(name="a", address="192.0.2.1", allowed_inbounds=["VMESS_TCP"]))
     monkeypatch.setattr(core_module, "MAIN_CORE_INBOUNDS", mode)
     monkeypatch.setattr(operations, "MAIN_CORE_INBOUNDS", mode)
+    core = core_module.XRayCore(XRAY_EXECUTABLE_PATH, XRAY_ASSETS_PATH)  # runs the real "xray version"
     monkeypatch.setattr(core_module.subprocess, "Popen", FakePopen)
-    core = core_module.XRayCore(XRAY_EXECUTABLE_PATH, XRAY_ASSETS_PATH)
 
     core.start(xray.config.include_db_users())
 
