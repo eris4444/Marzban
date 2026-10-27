@@ -195,6 +195,24 @@ def api(method, path, body=None):
     return res.status, data
 
 
+def answers_like_rest():
+    """The panel's own REST/RPyC detection: a REST node answers a plain probe within 1 second."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=1) as probe:
+            probe.settimeout(1)
+            probe.send(b"HEAD / HTTP/1.0\r\n\r\n")
+            probe.recv(1024)
+        return True
+    except OSError:
+        return False
+
+
+# a node that has just started can answer slower and be taken for RPyC, which then hangs
+for _ in range(60):
+    if all(answers_like_rest() for _ in range(3)):
+        break
+    time.sleep(1)
+
 status, nodes = api("GET", "/nodes")
 if status != 200:
     sys.exit(f"ERROR: the panel API answered {status}: {nodes}")
@@ -231,10 +249,16 @@ if node["status"] == "disabled":
     sys.exit(0)
 
 print("== 5/5 waiting for the panel to connect")
-for _ in range(60):
+deadline = time.time() + 240
+last_reconnect = time.time()
+while time.time() < deadline:
     status, node = api("GET", f'/node/{node["id"]}')
     if node.get("status") == "connected":
         break
+    # a failed first attempt is retried (the panel skips this while an attempt is still running)
+    if node.get("status") == "error" and time.time() - last_reconnect > 20:
+        api("POST", f'/node/{node["id"]}/reconnect')
+        last_reconnect = time.time()
     time.sleep(2)
 if node.get("status") != "connected":
     sys.exit(f'ERROR: node "{node["name"]}" is {node.get("status")}: {node.get("message")}')

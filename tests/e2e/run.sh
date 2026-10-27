@@ -359,6 +359,8 @@ local_node() {
 INBOUNDS="SS_TCP,VMESS_TCP" local_node >"$WORK/local.log" 2>&1
 code=$?
 cat "$WORK/local.log"
+echo "--- panel log about the local node"; docker logs panel 2>&1 | grep -F '"local"' | tail -n 20
+echo "--- local node log"; (cd "$LOCAL" && docker compose logs --tail 30 2>&1)
 check "local-node.sh installs and connects the node" [ "$code" = 0 ]
 api GET /nodes >/dev/null
 check "local node is in the panel on 127.0.0.1 with its selection" \
@@ -398,6 +400,8 @@ start_panel "$IMAGE" -e MAIN_CORE_INBOUNDS=auto
 api GET /node/settings >/dev/null
 check "node settings report main_core_inbounds=auto" [ "$(body .main_core_inbounds)" = '"auto"' ]
 expect_ports "auto: main core runs every inbound while no node picks any" 127.0.0.1 "$ALL_PORTS" ""
+# editing a node while the panel's startup is still connecting it loses that connect (upstream)
+wait_connected node-a node-b node-c node-e
 code=$(api PUT "/node/$NODE_B" '{"allowed_inbounds":["VLESS_TCP","TROJAN_TCP"]}')
 check "auto: pick VLESS_TCP + TROJAN_TCP for node-b" [ "$code" = 200 ]
 expect_ports "auto: main core leaves out the picked inbounds" 127.0.0.1 "20001 20004 20006" "20002 20003"
