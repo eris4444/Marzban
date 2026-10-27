@@ -3,6 +3,7 @@
 Run inside the Marzban image (it has xray and the dependencies):
     docker run --rm -v "$PWD/tests:/code/tests" <image> bash -c "pip install pytest && python -m pytest tests"
 """
+import importlib
 import json
 from types import SimpleNamespace
 
@@ -187,7 +188,8 @@ class FakePopen:
     ("auto", {"API_INBOUND", "EXTRA_DOKO", "VLESS_TCP", "TROJAN_TCP", "FALLBACK_MAIN", "WS_CHILD"}),
 ])
 def test_main_core_starts_with_the_right_inbounds(db, monkeypatch, mode, expected):
-    from app.xray import core as core_module
+    # app.xray.core is shadowed by the XRayCore instance app.xray exports under the same name
+    core_module = importlib.import_module("app.xray.core")
     from config import XRAY_ASSETS_PATH, XRAY_EXECUTABLE_PATH
 
     crud.create_node(db, NodeCreate(name="a", address="192.0.2.1", allowed_inbounds=["VMESS_TCP"]))
