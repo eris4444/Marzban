@@ -341,6 +341,7 @@ const NodeForm: NodeFormType = ({
       fetch<{
         min_node_version: string;
         certificate: string;
+        main_core_inbounds?: "none" | "auto";
       }>("/node/settings"),
   });
   function selectText(node: HTMLElement) {
@@ -586,7 +587,11 @@ const NodeForm: NodeFormType = ({
             }}
           />
           <FormHelperText fontSize="xs">
-            {t("nodes.allowedInboundsHint")}
+            {t(
+              nodeSettings?.main_core_inbounds === "auto"
+                ? "nodes.allowedInboundsHintAuto"
+                : "nodes.allowedInboundsHint"
+            )}
           </FormHelperText>
           <FormErrorMessage>
             {form.formState?.errors?.allowed_inbounds?.message}

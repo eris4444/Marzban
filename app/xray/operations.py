@@ -10,6 +10,7 @@ from app.models.node import NodeStatus
 from app.models.user import UserResponse
 from app.utils.concurrency import threaded_function
 from app.xray.node import XRayNode
+from config import MAIN_CORE_INBOUNDS
 from xray_api import XRay as XRayAPI
 from xray_api.types.account import Account, XTLSFlows
 
@@ -64,7 +65,7 @@ def _node_has_inbound(node: XRayNode, inbound_tag: str) -> bool:
 
 
 def _core_has_inbound(inbound_tag: str) -> bool:
-    # inbounds picked for a node are left out of the main core
+    # the main core runs no inbound at all by default, or none picked for a node with "auto"
     return inbound_tag not in xray.core.excluded_inbounds
 
 
@@ -74,14 +75,21 @@ def node_only_inbounds() -> set:
         return {tag for dbnode in crud.get_nodes(db) for tag in dbnode.allowed_inbounds or []}
 
 
+def main_core_left_out(config) -> set:
+    """User inbounds the main core doesn't run: all of them, unless MAIN_CORE_INBOUNDS is "auto"."""
+    if MAIN_CORE_INBOUNDS != "auto":
+        return set(config.inbounds_by_tag)
+    return node_only_inbounds()
+
+
 _sync_core_lock = Lock()
 
 
 @threaded_function
 def sync_core_inbounds():
-    """Restart the main core if the inbounds picked for nodes changed since it started."""
+    """Restart the main core if the inbounds it must leave out changed since it started."""
     with _sync_core_lock:
-        if node_only_inbounds() != xray.core.excluded_inbounds:
+        if main_core_left_out(xray.config) != xray.core.excluded_inbounds:
             xray.core.restart(xray.config.include_db_users())
 
 

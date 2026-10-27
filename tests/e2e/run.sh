@@ -6,8 +6,12 @@
 # 1. installs upstream Marzban ($OLD_IMAGE), adds a user and a node,
 # 2. upgrades that same database with <new-image> and proves the old rows are untouched,
 # 3. runs four real marzban-node containers (rest and rpyc) with different selections and checks
-#    which inbound ports each node really listens on (edit, core restart and reconnect included),
-# 4. rolls the database back and starts upstream Marzban on it again.
+#    which inbound ports each node really listens on (edit, core restart and reconnect included)
+#    while the panel's own core runs none (MAIN_CORE_INBOUNDS=none, the default),
+# 4. puts a node on the panel server itself with local-node.sh and checks that this server serves
+#    only that node's inbounds, and nothing once the node is disabled,
+# 5. checks MAIN_CORE_INBOUNDS=auto (the panel's core runs what no node picked),
+# 6. rolls the database back and starts upstream Marzban on it again.
 # Needs docker, curl, jq and python3 on Linux (GitHub's ubuntu runner).
 set -uo pipefail
 
@@ -31,6 +35,9 @@ bad() { echo "  FAIL  $*"; FAIL=$((FAIL + 1)); }
 check() { local name=$1; shift; if "$@"; then ok "$name"; else bad "$name"; fi; }
 
 cleanup() {
+  if [ -f "$WORK/local-node/docker-compose.yml" ]; then
+    (cd "$WORK/local-node" && docker compose down >/dev/null 2>&1)
+  fi
   docker rm -f panel node-a node-b node-c node-e e2e-db >/dev/null 2>&1
   docker network rm e2e-net >/dev/null 2>&1
   return 0
@@ -56,10 +63,12 @@ login() {
   done
 }
 
+# start_panel IMAGE [extra docker run options]
 start_panel() {
+  local image=$1; shift
   docker rm -f panel >/dev/null 2>&1
-  docker run -d --name panel --network host --env-file "$WORK/env" \
-    -v "$WORK/data:/var/lib/marzban" "$1" >/dev/null
+  docker run -d --name panel --network host --env-file "$WORK/env" "$@" \
+    -v "$WORK/data:/var/lib/marzban" "$image" >/dev/null
   login
 }
 
@@ -186,7 +195,13 @@ api GET /nodes >/dev/null
 check "old-node has no selection (null)" [ "$(body '.[] | select(.name == "old-node") | .allowed_inbounds')" = null ]
 api GET /users >/dev/null
 check "user alice still there" [ "$(body '[.users[].username]')" = '["alice"]' ]
-expect_ports "main core runs every inbound" 127.0.0.1 "$ALL_PORTS" ""
+# wait for the core to start first, otherwise "closed" would pass before it even runs
+check "panel log says the main core runs no inbounds" \
+  wait_log_more 'Main core runs no inbounds (MAIN_CORE_INBOUNDS=none)' 0
+sleep 3
+expect_ports "main core runs no inbound (nodes only, the default)" 127.0.0.1 "" "$ALL_PORTS"
+api GET /node/settings >/dev/null
+check "node settings report main_core_inbounds=none" [ "$(body .main_core_inbounds)" = '"none"' ]
 
 echo "== [$DB] 3. real nodes with different selections (a, b, c: rest; e: rpyc)"
 api GET /node/settings >/dev/null
@@ -251,18 +266,18 @@ expect_ports "node-a runs only VMESS_TCP (+ non-user inbound)" "$IP_A" "20001 20
 expect_ports "node-b runs only VLESS_TCP + TROJAN_TCP" "$IP_B" "20002 20003 20006" "20001 20004"
 expect_ports "node-c (no selection) runs every inbound" "$IP_C" "$ALL_PORTS" ""
 expect_ports "rpyc node-e runs only TROJAN_TCP" "$IP_E" "20003 20006" "20001 20002 20004"
-expect_ports "main core dropped VMESS/VLESS/TROJAN (picked for nodes), keeps SS_TCP" \
-  127.0.0.1 "20004 20006" "20001 20002 20003"
-check "panel log says what the main core leaves out" \
-  bash -c "docker logs panel 2>&1 | grep -qF 'Main core leaves out inbounds picked for nodes: TROJAN_TCP, VLESS_TCP, VMESS_TCP'"
+expect_ports "main core still runs no inbound" 127.0.0.1 "" "$ALL_PORTS"
 check "panel log says which inbounds node-b gets" \
   bash -c "docker logs panel 2>&1 | grep -qF 'Node \"node-b\" gets only these inbounds: VLESS_TCP, TROJAN_TCP'"
 
 MARZBAN_CONTAINER=panel bash "$HERE/../../node-inbounds-check.sh" >"$WORK/check.log" 2>&1
 cat "$WORK/check.log"
 check "check script sees the feature code" grep -qF "per-node inbound code: present" "$WORK/check.log"
+check "check script sees nodes-only mode" grep -qF "== MAIN_CORE_INBOUNDS=none" "$WORK/check.log"
+check "check script sees the main core running (API inbound only)" \
+  bash -c "! grep -qF 'no Xray process runs' '$WORK/check.log'"
 check "check script lists what the main server leaves out" \
-  grep -qF "main server leaves out: TROJAN_TCP, VLESS_TCP, VMESS_TCP" "$WORK/check.log"
+  grep -qF "main server leaves out: SS_TCP, TROJAN_TCP, VLESS_TCP, VMESS_TCP" "$WORK/check.log"
 check "check script finds no problems" grep -qx "no problems found" "$WORK/check.log"
 # something else answering on node-b's VMESS_TCP port must show up as a problem
 docker exec -d node-b python3 -c '
@@ -296,7 +311,7 @@ check "edit node-a to [SS_TCP]" [ "$code" = 200 ]
 check "edit returns the new selection" [ "$(body .allowed_inbounds)" = '["SS_TCP"]' ]
 check "editing the selection reconnects node-a" wait_log_more 'Connected to "node-a" node' "$before"
 expect_ports "node-a now runs only SS_TCP" "$IP_A" "20004 20006" "20001 20002 20003"
-expect_ports "main core got VMESS_TCP back and dropped SS_TCP" 127.0.0.1 "20001 20006" "20002 20003 20004"
+expect_ports "main core still runs no inbound after node edits" 127.0.0.1 "" "$ALL_PORTS"
 
 before=$(log_count 'Xray core of "node-b" node restarted')
 code=$(api POST /core/restart)
@@ -304,8 +319,7 @@ check "restart core" [ "$code" = 200 ]
 check "core restart restarts node-b" wait_log_more 'Xray core of "node-b" node restarted' "$before"
 expect_ports "after core restart node-b still runs only its inbounds" "$IP_B" "20002 20003 20006" "20001 20004"
 expect_ports "after core restart node-a still runs only SS_TCP" "$IP_A" "20004 20006" "20001 20002 20003"
-expect_ports "after core restart main core still leaves out SS/VLESS/TROJAN" \
-  127.0.0.1 "20001 20006" "20002 20003 20004"
+expect_ports "after core restart main core still runs no inbound" 127.0.0.1 "" "$ALL_PORTS"
 
 before=$(log_count 'Connected to "node-b" node')
 code=$(api POST "/node/$NODE_B/reconnect")
@@ -329,15 +343,82 @@ check "clear node-a selection with []" [ "$code" = 200 ]
 check "cleared selection is returned as null" [ "$(body .allowed_inbounds)" = null ]
 check "clearing reconnects node-a" wait_log_more 'Connected to "node-a" node' "$before"
 expect_ports "node-a runs every inbound again" "$IP_A" "$ALL_PORTS" ""
-expect_ports "main core got SS_TCP back" 127.0.0.1 "20001 20004 20006" "20002 20003"
 
 code=$(api PUT "/node/$NODE_B" '{"allowed_inbounds":[]}')
 check "clear node-b selection" [ "$code" = 200 ]
 code=$(api PUT "/node/$NODE_E" '{"allowed_inbounds":[]}')
 check "clear node-e selection" [ "$code" = 200 ]
-expect_ports "no node picks anything: main core runs every inbound again" 127.0.0.1 "$ALL_PORTS" ""
+expect_ports "no node picks anything: main core still runs no inbound" 127.0.0.1 "" "$ALL_PORTS"
 
-echo "== [$DB] 4. roll back to $OLD_IMAGE"
+echo "== [$DB] 4. a node on the panel server itself (local-node.sh)"
+LOCAL=$WORK/local-node
+local_node() {
+  MARZBAN_CONTAINER=panel NODE_DIR="$LOCAL" NODE_DATA="$WORK/local-node-data" NODE_IMAGE="$NODE_IMAGE" \
+    bash "$HERE/../../local-node.sh" "$@"
+}
+INBOUNDS="SS_TCP,VMESS_TCP" local_node >"$WORK/local.log" 2>&1
+code=$?
+cat "$WORK/local.log"
+check "local-node.sh installs and connects the node" [ "$code" = 0 ]
+api GET /nodes >/dev/null
+check "local node is in the panel on 127.0.0.1 with its selection" \
+  [ "$(body '[.[] | select(.name == "local") | .address, .allowed_inbounds]')" = '["127.0.0.1",["SS_TCP","VMESS_TCP"]]' ]
+LOCAL_ID=$(body '.[] | select(.name == "local") | .id')
+expect_ports "panel server serves exactly the local node's inbounds" 127.0.0.1 "20001 20004 20006" "20002 20003"
+PUBLIC_IP=$(hostname -I | awk '{print $1}')
+check "local node service listens on 127.0.0.1 only" bash -c "! timeout 2 bash -c 'exec 3<>/dev/tcp/$PUBLIC_IP/62050'"
+MARZBAN_CONTAINER=panel bash "$HERE/../../node-inbounds-check.sh" >"$WORK/check3.log" 2>&1
+cat "$WORK/check3.log"
+check "check script marks the node on the panel server" grep -qF '[runs on this panel server]' "$WORK/check3.log"
+check "check script finds no problems with the local node" grep -qx "no problems found" "$WORK/check3.log"
+
+code=$(api PUT "/node/$LOCAL_ID" '{"status":"disabled"}')
+check "disable the local node" [ "$code" = 200 ]
+expect_ports "local node disabled: nothing works on the panel server" 127.0.0.1 "" "$ALL_PORTS"
+code=$(api PUT "/node/$LOCAL_ID" '{"status":"connecting"}')
+check "enable the local node again" [ "$code" = 200 ]
+wait_connected local
+expect_ports "local node enabled: its inbounds work again" 127.0.0.1 "20001 20004 20006" "20002 20003"
+
+local_node >"$WORK/local2.log" 2>&1
+code=$?
+cat "$WORK/local2.log"
+check "running local-node.sh again succeeds" [ "$code" = 0 ]
+check "running it again reuses the node" grep -qF 'is already in the panel' "$WORK/local2.log"
+api GET /nodes >/dev/null
+check "still exactly one local node" [ "$(body '[.[] | select(.address == "127.0.0.1")] | length')" = 1 ]
+
+code=$(api DELETE "/node/$LOCAL_ID")
+check "remove the local node from the panel" [ "$code" = 200 ]
+(cd "$LOCAL" && docker compose down >/dev/null 2>&1)
+expect_ports "local node removed: nothing listens on the panel server" 127.0.0.1 "" "$ALL_PORTS"
+
+echo "== [$DB] 5. MAIN_CORE_INBOUNDS=auto"
+start_panel "$IMAGE" -e MAIN_CORE_INBOUNDS=auto
+api GET /node/settings >/dev/null
+check "node settings report main_core_inbounds=auto" [ "$(body .main_core_inbounds)" = '"auto"' ]
+expect_ports "auto: main core runs every inbound while no node picks any" 127.0.0.1 "$ALL_PORTS" ""
+code=$(api PUT "/node/$NODE_B" '{"allowed_inbounds":["VLESS_TCP","TROJAN_TCP"]}')
+check "auto: pick VLESS_TCP + TROJAN_TCP for node-b" [ "$code" = 200 ]
+expect_ports "auto: main core leaves out the picked inbounds" 127.0.0.1 "20001 20004 20006" "20002 20003"
+check "auto: panel log says what the main core leaves out" \
+  bash -c "docker logs panel 2>&1 | grep -qF 'Main core leaves out inbounds picked for nodes: TROJAN_TCP, VLESS_TCP'"
+wait_connected node-a node-b node-c node-e
+expect_ports "auto: node-b runs only its inbounds" "$IP_B" "20002 20003 20006" "20001 20004"
+MARZBAN_CONTAINER=panel bash "$HERE/../../node-inbounds-check.sh" >"$WORK/check4.log" 2>&1
+cat "$WORK/check4.log"
+check "auto: check script sees auto mode" grep -qF "== MAIN_CORE_INBOUNDS=auto" "$WORK/check4.log"
+check "auto: check script finds no problems" grep -qx "no problems found" "$WORK/check4.log"
+local_node >"$WORK/local3.log" 2>&1
+code=$?
+cat "$WORK/local3.log"
+check "auto: local-node.sh refuses to share ports with the main core" \
+  bash -c "[ $code != 0 ] && grep -qF 'MAIN_CORE_INBOUNDS=auto' '$WORK/local3.log'"
+code=$(api PUT "/node/$NODE_B" '{"allowed_inbounds":[]}')
+check "auto: clear node-b selection" [ "$code" = 200 ]
+expect_ports "auto: main core runs every inbound again" 127.0.0.1 "$ALL_PORTS" ""
+
+echo "== [$DB] 6. roll back to $OLD_IMAGE"
 docker logs panel >"$WORK/panel-new.log" 2>&1
 docker stop panel >/dev/null
 run_panel "$IMAGE" alembic downgrade 2b231de97dc3 >"$WORK/downgrade.log" 2>&1

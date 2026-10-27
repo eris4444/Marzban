@@ -369,6 +369,12 @@ class XRayConfig(dict):
         config['inbounds'] = [i for i in config['inbounds'] if i['tag'] not in removed]
         return config
 
+    def api_only(self) -> XRayConfig:
+        """Return a deep copy whose only inbound is API_INBOUND, so nothing listens for clients."""
+        config = self.copy()
+        config['inbounds'] = [i for i in config['inbounds'] if i.get('tag') == "API_INBOUND"]
+        return config
+
     def include_db_users(self) -> XRayConfig:
         config = self.copy()
 

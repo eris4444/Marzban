@@ -147,6 +147,61 @@ def test_inbounds_picked_for_nodes_leave_the_main_core(db):
     assert operations.node_only_inbounds() == {"VMESS_TCP", "VLESS_TCP"}
 
 
+def test_api_only_keeps_nothing_clients_can_reach(config):
+    before = config.to_json()
+
+    assert tags(config.api_only()) == {"API_INBOUND"}
+    assert config.to_json() == before
+
+
+def test_main_core_leaves_out_every_inbound_by_default(db, monkeypatch):
+    crud.create_node(db, NodeCreate(name="a", address="192.0.2.1", allowed_inbounds=["VMESS_TCP"]))
+
+    assert operations.MAIN_CORE_INBOUNDS == "none"
+    assert operations.main_core_left_out(xray.config) == set(xray.config.inbounds_by_tag)
+
+    monkeypatch.setattr(operations, "MAIN_CORE_INBOUNDS", "auto")
+    assert operations.main_core_left_out(xray.config) == {"VMESS_TCP"}
+
+
+class FakePopen:
+    """Stands in for the xray process and keeps the config written to its stdin."""
+    written = None
+
+    def __init__(self, *args, **kwargs):
+        self.stdin = SimpleNamespace(write=self.write, flush=lambda: None, close=lambda: None)
+        self.stdout = SimpleNamespace(readline=lambda: "")
+
+    def write(self, text):
+        FakePopen.written = json.loads(text)
+
+    def poll(self):
+        return 0  # "exited", so the log reader thread stops at once
+
+    def terminate(self):
+        pass
+
+
+@pytest.mark.parametrize("mode, expected", [
+    ("none", {"API_INBOUND"}),  # no inbound at all, not even the ones Marzban doesn't manage
+    ("auto", {"API_INBOUND", "EXTRA_DOKO", "VLESS_TCP", "TROJAN_TCP", "FALLBACK_MAIN", "WS_CHILD"}),
+])
+def test_main_core_starts_with_the_right_inbounds(db, monkeypatch, mode, expected):
+    from app.xray import core as core_module
+    from config import XRAY_ASSETS_PATH, XRAY_EXECUTABLE_PATH
+
+    crud.create_node(db, NodeCreate(name="a", address="192.0.2.1", allowed_inbounds=["VMESS_TCP"]))
+    monkeypatch.setattr(core_module, "MAIN_CORE_INBOUNDS", mode)
+    monkeypatch.setattr(operations, "MAIN_CORE_INBOUNDS", mode)
+    monkeypatch.setattr(core_module.subprocess, "Popen", FakePopen)
+    core = core_module.XRayCore(XRAY_EXECUTABLE_PATH, XRAY_ASSETS_PATH)
+
+    core.start(xray.config.include_db_users())
+
+    assert {i["tag"] for i in FakePopen.written["inbounds"]} == expected
+    assert core.excluded_inbounds == ({"VMESS_TCP"} if mode == "auto" else set(xray.config.inbounds_by_tag))
+
+
 def test_users_skip_the_main_core_for_node_only_inbounds(monkeypatch):
     monkeypatch.setattr(xray.core, "excluded_inbounds", {"VMESS_TCP"})
 

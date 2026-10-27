@@ -78,3 +78,6 @@ jobs:
             docker tag marzban:test "ghcr.io/$owner/marzban:$tag"
             docker push "ghcr.io/$owner/marzban:$tag"
           done
+          # the marzban-node image the tests just used, for local-node.sh on servers without Docker Hub
+          docker tag gozargah/marzban-node:latest "ghcr.io/$owner/marzban:marzban-node"
+          docker push "ghcr.io/$owner/marzban:marzban-node"

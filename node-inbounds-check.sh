@@ -154,22 +154,32 @@ for row in node_rows:
         "on_main": bool(ips & main_ips),
     })
 
-left_out = set().union(*(n["allowed"] or set() for n in nodes)) if has_column else set()
+# images before MAIN_CORE_INBOUNDS behaved like "auto"
+mode = getattr(config, "MAIN_CORE_INBOUNDS", "auto")
+if mode == "auto":
+    left_out = set().union(*(n["allowed"] or set() for n in nodes)) if has_column else set()
+else:
+    left_out = {i["tag"] for i in inbounds if i["managed"]}
 main_ports = main_core_ports()
+local_nodes = [n for n in nodes if n["on_main"]]
 
 print("== main server IPs:", " ".join(sorted(main_ips - {"127.0.0.1", "::1"})) or "unknown")
 if not has_column:
     print("!! nodes.allowed_inbounds column is missing: the migration did not run")
+if mode == "auto":
+    print("== MAIN_CORE_INBOUNDS=auto: the panel's own core runs every inbound not picked for a node")
+else:
+    print("== MAIN_CORE_INBOUNDS=none: the panel's own core runs no inbounds, configs work only through nodes")
 print("== nodes")
 for n in nodes:
     if n["allowed"] is None:
-        picked = "ALL inbounds (stored as null: the main server keeps every inbound for this node)"
+        picked = "ALL inbounds (stored as null)"
     else:
         picked = ", ".join(sorted(n["allowed"]))
-    print(f'   "{n["name"]}"  status={n["status"]}  inbounds: {picked}')
-    if n["on_main"]:
-        print(f'      !! the address of "{n["name"]}" ({n["address"]}) is this main server itself')
-        notes.append(f'node "{n["name"]}" points at the main server, so its ports can\'t be told apart from the main server\'s')
+    where = "  [runs on this panel server]" if n["on_main"] else ""
+    print(f'   "{n["name"]}"  status={n["status"]}  inbounds: {picked}{where}')
+if mode == "none" and not any(n["status"] != "disabled" for n in local_nodes):
+    print("   (no enabled node runs on this panel server: links to this server's address don't work)")
 print("== main server leaves out:", ", ".join(sorted(left_out)) or "nothing")
 if main_ports is None:
     print("!! no Xray process runs in the Marzban container (main core is down)")
@@ -182,19 +192,25 @@ with ThreadPoolExecutor(max_workers=32) as pool:
     probes = {key: future.result() for key, future in probes.items()}
 
 
-def node_runs(n, tag):
-    return n["allowed"] is None or tag in n["allowed"]
+def main_core_runs(i):
+    if mode != "auto":
+        return False
+    return not i["managed"] or i["tag"] not in left_out
+
+
+def node_runs(n, i):
+    if n["status"] == "disabled":
+        return False
+    return not i["managed"] or n["allowed"] is None or i["tag"] in n["allowed"]
 
 
 print("== inbounds: should run / really listens (probed from this server)")
 for i in inbounds:
     tag = i["tag"]
     port = i["port"] if i["port"] else "no port"
-    print(f'{tag}  ({i["protocol"]}, {i["network"]}, {port})')
-    if not i["managed"]:
-        print("   not a user inbound: runs on the main server and on every node")
-        continue
-    should = tag not in left_out
+    kind = "" if i["managed"] else ", not a user inbound: every node runs it"
+    print(f'{tag}  ({i["protocol"]}, {i["network"]}, {port}{kind})')
+    should = main_core_runs(i)
     if main_ports is None or not i["port"] or not i["tcp"]:
         really = "not checked"
     else:
@@ -202,24 +218,30 @@ for i in inbounds:
     flag = ""
     if really != "not checked" and should != (really == "listening"):
         flag = "   <-- PROBLEM"
-        problems.append(f'{tag} on the main server: should {"" if should else "not "}run, but is {really}')
-    print(f'   main server{" " * 10}should: {"yes" if should else "no "}   really: {really}{flag}')
+        problems.append(f'{tag} on the panel\'s own core: should {"" if should else "not "}run, but is {really}')
+    print(f'   panel\'s own core     should: {"yes" if should else "no "}   really: {really}{flag}')
     for n in nodes:
         label = f'node "{n["name"]}"'
-        if n["status"] == "disabled":
-            should, why = False, " (node disabled)"
-        else:
-            should, why = node_runs(n, tag), ""
+        should = node_runs(n, i)
+        why = " (node disabled)" if n["status"] == "disabled" else ""
         result = probes.get((n["name"], tag))
         really = "not checked" if result is None else ("open" if result else "closed")
         flag = ""
-        if result is not None and not n["on_main"] and should != result:
+        # on the panel server a port the panel's own core holds can't be told apart from the node's
+        shared = n["on_main"] and (main_ports is None or i["port"] in main_ports)
+        if result is not None and not shared and should != result:
             if n["status"] in ("connected", "disabled"):
                 flag = "   <-- PROBLEM"
                 problems.append(f'{tag} on {label}: should {"" if should else "not "}run{why}, but the port is {really}')
             else:
                 flag = f'   (node is {n["status"]})'
         print(f'   {label:<20} should: {"yes" if should else "no "}   really: {really}{why}{flag}')
+
+
+def panel_server_runs(i):
+    """True if the panel's own core or a node on the panel server serves this inbound."""
+    return i is not None and (main_core_runs(i) or any(node_runs(n, i) for n in local_nodes))
+
 
 print("== subscription hosts (where each link connects)")
 host_tags = {i["tag"]: i for i in inbounds}
@@ -229,15 +251,14 @@ for row in host_rows:
     for address in row.address.split(","):
         address = address.strip()
         if address in ("{SERVER_IP}", "{SERVER_IPV6}"):
-            targets.append(("main server", row.inbound_tag not in left_out))
+            targets.append(("panel server", panel_server_runs(inbound)))
             continue
         ips = resolve(address)
-        node = next((n for n in nodes if n["address"] == address or ips & n["ips"]), None)
+        node = next((n for n in nodes if not n["on_main"] and (n["address"] == address or ips & n["ips"])), None)
         if node:
-            runs = node["status"] != "disabled" and node_runs(node, row.inbound_tag)
-            targets.append((f'node "{node["name"]}"', runs))
-        elif ips & main_ips:
-            targets.append(("main server", row.inbound_tag not in left_out))
+            targets.append((f'node "{node["name"]}"', inbound is not None and node_runs(node, inbound)))
+        elif ips & main_ips or any(n["address"] == address for n in local_nodes):
+            targets.append(("panel server", panel_server_runs(inbound)))
         else:
             targets.append((f"other address {address}", None))
     port = row.port or (inbound["port"] if inbound else None)
@@ -259,4 +280,4 @@ if not problems:
 PY
 
 echo "== panel log (newest lines about inbounds)"
-docker logs --tail 5000 "$c" 2>&1 | grep -E "Main core leaves out|gets only these inbounds|Unable to start|Traceback" | tail -n 8
+docker logs --tail 5000 "$c" 2>&1 | grep -E "Main core leaves out|Main core runs no inbounds|gets only these inbounds|Unable to start|Traceback" | tail -n 8

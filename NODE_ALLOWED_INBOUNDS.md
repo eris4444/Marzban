@@ -1,38 +1,89 @@
-# Per-node inbound selection
+# Nodes only, with per-node inbounds
 
-This branch (`feature/node-allowed-inbounds`, based on Marzban v0.8.4) lets you choose, per node,
-which inbounds are built on it. In **Nodes → add / edit node** every inbound is ticked by default
-(the node runs all of them, exactly like upstream Marzban); untick the inbounds that must not exist
-on that node and save. At least one box has to stay ticked.
+This branch (`feature/node-allowed-inbounds`, based on Marzban v0.8.4) makes Marzban work like
+PasarGuard: **the panel only manages, nodes serve.**
 
-- Only the chosen user inbounds are sent to that node. Inbounds Marzban doesn't manage
+- **The panel's own Xray core runs no inbounds** (`MAIN_CORE_INBOUNDS=none`, the default). A config
+  works only through a connected node that runs its inbound. Disable or lose every node and no
+  config works anywhere.
+- **Each node runs only the inbounds ticked for it** in Nodes → add / edit node. Every box is
+  ticked by default (the node runs all inbounds, like upstream); untick what must not exist there.
+  At least one box has to stay ticked.
+- **To serve configs on the panel server too**, run a node on it: `local-node.sh` (below). The
+  default `{SERVER_IP}` hosts point at the panel server, so they work exactly for the inbounds
+  ticked on that local node.
+
+## Compared with PasarGuard
+
+PasarGuard's panel has no Xray process at all; every node is started with a core config from the
+database and only the users of that config's inbounds. Here the panel keeps one `xray_config.json`
+and starts each node with the ticked part of it, with the users of those inbounds only; the
+panel's own core keeps running with just its API inbound (Marzban's usage and health jobs talk to
+it), so nothing on the panel server listens for clients unless a node runs there.
+
+## What each node gets
+
+- Only the ticked user inbounds, and the users in them. Inbounds Marzban doesn't manage
   (`API_INBOUND`, tags in `XRAY_EXCLUDE_INBOUND_TAGS`, non-proxy protocols such as dokodemo-door)
-  are always kept.
-- An inbound ticked on a node that doesn't run everything is **not built on the main server**: it
-  works only through the nodes, and only while such a node is up. It counts even while that node is
-  disabled; deleting the node or ticking every box on it gives the inbound back to the main server.
-  The main core restarts by itself when this set changes. Nodes with every box ticked still run
-  every inbound and take nothing away from the main server. `xray_config.json` is never edited.
-- The selection is applied on node connect, reconnect, edit and "restart core".
-- "Add this node as a new host" on a new node creates hosts only for the inbounds it runs
-  (for every inbound when nothing is selected).
-- API: `allowed_inbounds` (list of inbound tags, or `null`) on `POST /api/node`, `PUT /api/node/{id}`
-  and in every node response. On `PUT`, omit it (or send `null`) to keep the current selection and
-  send `[]` to clear it. Unknown tags are rejected with 422.
+  go to every node.
+- The selection is applied on connect, reconnect, edit and "restart core"; adding, editing or
+  removing a user reaches only the nodes that run that inbound.
+- "Add this node as a new host" on a new node creates hosts only for the inbounds it runs.
+- API: `allowed_inbounds` (list of inbound tags, or `null` for all) on `POST /api/node`,
+  `PUT /api/node/{id}` and every node response. On `PUT`, omit it (or send `null`) to keep the
+  current selection and send `[]` to select all. Unknown tags are rejected with 422.
+  `GET /api/node/settings` also returns `main_core_inbounds`.
+
+## A node on the panel server: `local-node.sh`
+
+Run on the panel server, as root:
+
+```bash
+bash local-node.sh                                         # node "local", every inbound
+INBOUNDS="VLESS TCP REALITY,VMESS WS" bash local-node.sh   # only these inbounds
+```
+
+It
+
+1. checks that the panel runs this image with `MAIN_CORE_INBOUNDS=none` and `network_mode: host`,
+2. writes `/opt/marzban-node/docker-compose.yml` and the panel's client certificate to
+   `/var/lib/marzban-node/ssl_client_cert.pem`, and starts `gozargah/marzban-node` with its service
+   (62050) and Xray API (62051) on **127.0.0.1 only**, so nothing new is reachable from outside;
+   if Docker Hub can't be reached it uses the same image from `ghcr.io/eris4444/marzban:marzban-node`,
+3. adds it to the panel as node `local` with address `127.0.0.1` and no extra hosts, through the
+   panel API with a 10-minute sudo token it signs with the panel's own key (no password needed),
+4. waits until the panel shows the node connected.
+
+Running it again changes nothing that's already there: an existing host-network marzban-node on
+this server (e.g. one installed with the official script in `/opt/marzban-node`) is reused, its
+certificate is replaced with this panel's if it differs (the old one is kept as `.bak`), and a node
+that is already in the panel isn't added twice (with `INBOUNDS=...` its selection is updated).
+Settings: `NODE_NAME`, `INBOUNDS`, `NODE_DIR`, `NODE_DATA`, `SERVICE_PORT`, `XRAY_API_PORT`,
+`NODE_IMAGE`, `MARZBAN_DIR`, `MARZBAN_CONTAINER`.
+
+## The old behaviour: `MAIN_CORE_INBOUNDS=auto`
+
+Put `MAIN_CORE_INBOUNDS=auto` in `/opt/marzban/.env` and run `docker compose up -d`: the panel's
+core then runs every inbound that no node has ticked in a limited selection (nodes with every box
+ticked take nothing away). Don't combine it with a node on the panel server: both would want the
+same ports, so `local-node.sh` refuses to run in this mode.
 
 ## Database
 
 One Alembic migration (`4c2b9a7e1f36`) adds a single nullable column, `nodes.allowed_inbounds`.
 No existing row is rewritten; every existing node gets `NULL`, which means "all inbounds".
+`MAIN_CORE_INBOUNDS` is an environment setting, not stored in the database.
 CI proves this on SQLite, MySQL 8 and MariaDB: it dumps every table of a database made by upstream
 v0.8.4, upgrades it, and checks that every old row still holds exactly the same values.
 
 ## Install (official `/opt/marzban` setup)
 
-1. Back up first, e.g. for SQLite: `cp /var/lib/marzban/db.sqlite3 /var/lib/marzban/db.sqlite3.bak`
+1. Back up, e.g. for SQLite: `cp /var/lib/marzban/db.sqlite3 /var/lib/marzban/db.sqlite3.bak`
 2. In `/opt/marzban/docker-compose.yml` set `image: ghcr.io/eris4444/marzban:node-inbounds`
-3. `cd /opt/marzban && docker compose pull && docker compose up -d`
-   (the container runs `alembic upgrade head` on start).
+   (or a fixed `node-inbounds-<commit>` tag) and run `cd /opt/marzban && docker compose pull && docker compose up -d`.
+   From here on, configs pointing at the panel server stop working.
+3. `bash local-node.sh` on the panel server, if configs should work there; they work again as soon
+   as it says the node is connected (about a minute after step 2).
 
 The image is the official `gozargah/marzban:v0.8.4` image with this branch's code copied on top
 (`Dockerfile.node-inbounds`), so Python packages and the Xray binary are exactly the ones you run
@@ -48,27 +99,27 @@ setuptools dropped `pkg_resources`, which APScheduler 3.9.1 imports.)
 
 ## Going back to upstream
 
-1. While this image is still running: `docker compose exec marzban alembic downgrade 2b231de97dc3`
-2. Set the image back to `gozargah/marzban:latest` and run `docker compose up -d`.
+1. Delete the `local` node in the panel and stop it: `cd /opt/marzban-node && docker compose down`.
+2. While this image is still running: `docker compose exec marzban alembic downgrade 2b231de97dc3`
+3. Set the image back to `gozargah/marzban:latest` and run `docker compose up -d`.
 
-## Checking what a node runs
+## Checking where each inbound runs
 
-- `bash node-inbounds-check.sh` on the main server (it changes nothing) prints, for every inbound,
-  where it should run and whether its port really listens on the main server and on each node,
-  then where every subscription host points, and ends with a `PROBLEM:` line for each mismatch.
-- Panel log, after saving a node: `docker compose logs marzban | grep "gets only these inbounds"`
-  prints e.g. `Node "DE" gets only these inbounds: VLESS TCP REALITY`.
-- On the node server: `ss -ltnp | grep xray` lists the ports its Xray really listens on.
-- Panel log: `Main core leaves out inbounds picked for nodes: ...` lists what the main server dropped.
-- Subscriptions still list the main server's host (default `{SERVER_IP}`) for those inbounds; that
-  link no longer connects. Disable those hosts in Host Settings if you don't want them shown.
+- `bash node-inbounds-check.sh` on the panel server (it changes nothing) prints, for every inbound,
+  where it should run and whether its port really listens on the panel's own core and on each node
+  (a node on the panel server included), then where every subscription host points, and ends with
+  a `PROBLEM:` line for each mismatch.
+- Panel log: `Main core runs no inbounds (MAIN_CORE_INBOUNDS=none)` after each core start, and
+  `Node "DE" gets only these inbounds: ...` after a node is saved.
+- On a node server: `ss -ltnp | grep xray` lists the ports its Xray really listens on.
 
 ## Things to keep in mind
 
-- A user whose inbounds are all missing on a node can't connect through that node. Subscriptions
-  are unchanged and existing hosts are never edited, so a host that points at a node's address for
-  an inbound the node doesn't run (an older host, or one left after you changed the selection)
-  gives a link that fails. Remove or disable such hosts in Host Settings.
+- Subscriptions and hosts are unchanged: a host whose address leads to a server that doesn't run
+  its inbound (the panel server without a local node, or a node whose selection changed) still
+  appears and its link fails. Disable or remove such hosts in Host Settings; the check script lists
+  them.
+- A user whose inbounds are all missing on a node can't connect through that node.
 - An inbound without its own port (served through `XRAY_FALLBACKS_INBOUND_TAG`) can only be chosen
   together with that fallbacks inbound.
 - If you later delete an inbound from `xray_config.json`, nodes that listed only that tag run no
@@ -79,5 +130,8 @@ setuptools dropped `pkg_resources`, which APScheduler 3.9.1 imports.)
 ## Tests
 
 `.github/workflows/node-allowed-inbounds.yml` builds the dashboard and the image, runs
-`tests/test_node_allowed_inbounds.py` inside it, then `tests/e2e/run.sh` against real
-`marzban-node` containers for SQLite, MySQL and MariaDB and pushes the image to GHCR.
+`tests/test_node_allowed_inbounds.py` inside it, then `tests/e2e/run.sh` for SQLite, MySQL and
+MariaDB: real `marzban-node` containers (REST and rpyc) with different selections, the panel's own
+core with no inbounds, a node on the panel server made by `local-node.sh` (enabled, disabled,
+removed), `MAIN_CORE_INBOUNDS=auto`, the check script, and a rollback to upstream. Then it pushes the
+image to GHCR.

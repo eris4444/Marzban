@@ -7,7 +7,7 @@ from contextlib import contextmanager
 
 from app import logger
 from app.xray.config import XRayConfig
-from config import DEBUG
+from config import DEBUG, MAIN_CORE_INBOUNDS
 
 
 class XRayCore:
@@ -20,7 +20,7 @@ class XRayCore:
         self.version = self.get_version()
         self.process = None
         self.restarting = False
-        self.excluded_inbounds = set()  # inbounds picked for a node, left out of this core
+        self.excluded_inbounds = set()  # user inbounds this core doesn't run (see MAIN_CORE_INBOUNDS)
 
         self._logs_buffer = deque(maxlen=100)
         self._temp_log_buffers = {}
@@ -108,10 +108,14 @@ class XRayCore:
         if self.started is True:
             raise RuntimeError("Xray is started already")
 
-        # an inbound picked for a node runs only on nodes, never on the main server
-        from app.xray.operations import node_only_inbounds
-        self.excluded_inbounds = node_only_inbounds()
-        if self.excluded_inbounds:
+        from app.xray.operations import main_core_left_out
+        self.excluded_inbounds = main_core_left_out(config)
+        if MAIN_CORE_INBOUNDS != "auto":
+            # like a panel without a core: nothing listens here, a node on this server serves the ports
+            config = config.api_only()
+            logger.info("Main core runs no inbounds (MAIN_CORE_INBOUNDS=none): configs work only through nodes")
+        elif self.excluded_inbounds:
+            # an inbound picked for a node runs only on nodes, never on the main server
             config = config.filter_inbounds(set(config.inbounds_by_tag) - self.excluded_inbounds)
             logger.info(f"Main core leaves out inbounds picked for nodes: "
                         f"{', '.join(sorted(self.excluded_inbounds))}")

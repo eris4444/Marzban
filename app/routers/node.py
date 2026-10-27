@@ -20,6 +20,7 @@ from app.models.node import (
 )
 from app.models.proxy import ProxyHost
 from app.utils import responses
+from config import MAIN_CORE_INBOUNDS
 
 router = APIRouter(
     tags=["Node"], prefix="/api", responses={401: responses._401, 403: responses._403}
@@ -44,7 +45,7 @@ def get_node_settings(
 ):
     """Retrieve the current node settings, including TLS certificate."""
     tls = crud.get_tls_certificate(db)
-    return NodeSettings(certificate=tls.certificate)
+    return NodeSettings(certificate=tls.certificate, main_core_inbounds=MAIN_CORE_INBOUNDS)
 
 
 @router.post("/node", response_model=NodeResponse, responses={409: responses._409})
