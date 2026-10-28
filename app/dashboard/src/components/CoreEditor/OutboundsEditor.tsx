@@ -65,7 +65,7 @@ export const OutboundsEditor: FC<{ config: XrayConfig; onChange: (config: XrayCo
   const [fillLink, setFillLink] = useState("");
 
   const showError = (title: string) => toast({ title, status: "error", position: "top", duration: 4000, isClosable: true });
-  const error = (key: string, options?: any) => showError(t(`coreEditor.errors.${key}`, options));
+  const error = (key: string, options?: object) => showError(String(t(`coreEditor.errors.${key}`, options)));
   const tags = (except: number | null = null) => outbounds.filter((_, i) => i !== except).map((outbound) => outbound.tag);
   const patch = (p: Partial<OutboundForm>) => setEditing((e) => e && { ...e, form: { ...e.form, ...p } });
 
