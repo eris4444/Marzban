@@ -245,8 +245,12 @@ def panel_server_runs(i):
 
 print("== subscription hosts (where each link connects)")
 host_tags = {i["tag"]: i for i in inbounds}
+stale_hosts = 0
 for row in host_rows:
     inbound = host_tags.get(row.inbound_tag)
+    if inbound is None:
+        stale_hosts += 1  # its inbound left the config; subscriptions leave it out
+        continue
     targets = []
     for address in row.address.split(","):
         address = address.strip()
@@ -269,6 +273,9 @@ for row in host_rows:
             mark = "   (that server doesn't run this inbound: the link fails)"
             notes.append(f'host "{row.remark}" of {row.inbound_tag} -> {where}: that server doesn\'t run it')
         print(f'   {row.inbound_tag}: "{row.remark}" -> {where} :{port}{off}{mark}')
+
+if stale_hosts:
+    print(f"   ({stale_hosts} hosts belong to inbounds no longer in the config; subscriptions leave them out)")
 
 print("== result")
 for line in problems:

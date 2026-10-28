@@ -80,7 +80,7 @@ export const RoutingEditor: FC<{ config: XrayConfig; onChange: (config: XrayConf
 
   return (
     <VStack spacing={2} align="stretch">
-      <Text fontSize="xs" opacity={0.8}>
+      <Text fontSize="xs" opacity={0.8} dir="auto">
         {t("coreEditor.routingHint")}
       </Text>
       <HStack alignItems="flex-end" flexWrap="wrap" gap={2}>
@@ -126,7 +126,7 @@ export const RoutingEditor: FC<{ config: XrayConfig; onChange: (config: XrayConf
         />
       ))}
       {!rules.length && (
-        <Text fontSize="sm" opacity={0.7}>
+        <Text fontSize="sm" opacity={0.7} dir="auto">
           {t("coreEditor.noRules")}
         </Text>
       )}

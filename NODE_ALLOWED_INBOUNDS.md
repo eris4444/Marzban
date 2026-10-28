@@ -13,6 +13,31 @@ PasarGuard: **the panel only manages, nodes serve.**
   default `{SERVER_IP}` hosts point at the panel server, so they work exactly for the inbounds
   ticked on that local node.
 
+## Graphical core editor
+
+*Core Settings* has four tabs that edit the same config; *Save* sends it as before.
+
+- **Inbounds**: add, edit, duplicate or delete with a form. It covers vless, vmess, trojan and
+  shadowsocks over tcp (with or without the http header), ws, grpc, httpupgrade, xhttp and kcp,
+  with no security, TLS (certificate files on the panel server) or REALITY. REALITY key pairs and
+  short IDs can be generated. *Inbound from a link* copies protocol, port, transport and security
+  from another server's share link and gives a REALITY inbound its own new keys.
+- **Outbounds**: forms for direct (freedom), block (blackhole), vless, vmess, trojan, shadowsocks,
+  socks, http and WireGuard (WARP). *Outbounds from links* turns one share link per line
+  (`vless://`, `vmess://`, `trojan://`, `ss://`) into outbounds named after the links' remarks.
+  The order can be changed; the first outbound is the default.
+- **Routing**: domain strategy, and rules by inbound, domain, IP, port, network, protocol, source
+  IP and user, in any order. Ready-made rules: block ads, BitTorrent, private IPs or Iranian
+  sites and IPs, or send Iranian sites and IPs direct.
+- **JSON**: the full config as before. Every inbound, outbound and rule also has its own JSON tab,
+  and anything the forms don't know is kept as it is. Renaming an inbound or outbound updates the
+  routing rules that use it.
+
+Before a config is saved, `PUT /api/core/config` runs `xray run -test` on it. A config Xray can't
+load is refused with Xray's message, and the running cores and nodes keep the old one.
+`GET /api/core/x25519` returns a new REALITY key pair (`?private_key=` gives the public key of an
+existing one).
+
 ## Compared with PasarGuard
 
 PasarGuard's panel has no Xray process at all; every node is started with a core config from the

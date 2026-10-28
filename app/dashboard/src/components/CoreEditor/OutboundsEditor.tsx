@@ -151,7 +151,7 @@ export const OutboundsEditor: FC<{ config: XrayConfig; onChange: (config: XrayCo
 
   return (
     <VStack spacing={2} align="stretch">
-      <Text fontSize="xs" opacity={0.8}>
+      <Text fontSize="xs" opacity={0.8} dir="auto">
         {t("coreEditor.outboundsHint")}
       </Text>
       <HStack>
@@ -253,7 +253,7 @@ export const OutboundsEditor: FC<{ config: XrayConfig; onChange: (config: XrayCo
             )}
 
             {form.protocol === "blackhole" && (
-              <Text fontSize="sm" opacity={0.8} w="full">
+              <Text fontSize="sm" opacity={0.8} w="full" dir="auto">
                 {t("coreEditor.blackholeHint")}
               </Text>
             )}

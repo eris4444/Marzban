@@ -348,7 +348,7 @@ const CoreSettingModalContent: FC = () => {
               </TabPanels>
             </Tabs>
           )}
-          <Text fontSize="xs" opacity={0.7} mt={2}>
+          <Text fontSize="xs" opacity={0.7} mt={2} dir="auto">
             {t("coreEditor.saveHint")}
           </Text>
         </FormControl>

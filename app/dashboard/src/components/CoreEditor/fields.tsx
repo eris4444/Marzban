@@ -61,17 +61,17 @@ type FieldProps = {
 
 export const Field: FC<FieldProps> = ({ label, value, onChange, placeholder, helper, isRequired }) => (
   <FormControl isRequired={isRequired}>
-    <FormLabel fontSize="sm" mb={1}>
+    <FormLabel fontSize="sm" mb={1} dir="auto">
       {label}
     </FormLabel>
     <Input size="sm" dir="ltr" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
-    {helper && <FormHelperText fontSize="xs">{helper}</FormHelperText>}
+    {helper && <FormHelperText fontSize="xs" dir="auto">{helper}</FormHelperText>}
   </FormControl>
 );
 
 export const TextField: FC<FieldProps & { rows?: number }> = ({ label, value, onChange, placeholder, helper, rows = 3 }) => (
   <FormControl>
-    <FormLabel fontSize="sm" mb={1}>
+    <FormLabel fontSize="sm" mb={1} dir="auto">
       {label}
     </FormLabel>
     <Textarea
@@ -84,7 +84,7 @@ export const TextField: FC<FieldProps & { rows?: number }> = ({ label, value, on
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
     />
-    {helper && <FormHelperText fontSize="xs">{helper}</FormHelperText>}
+    {helper && <FormHelperText fontSize="xs" dir="auto">{helper}</FormHelperText>}
   </FormControl>
 );
 
@@ -98,7 +98,7 @@ export const SelectField: FC<{
   helper?: ReactNode;
 }> = ({ label, value, options, onChange, helper }) => (
   <FormControl>
-    <FormLabel fontSize="sm" mb={1}>
+    <FormLabel fontSize="sm" mb={1} dir="auto">
       {label}
     </FormLabel>
     <Select size="sm" dir="ltr" value={value} onChange={(e) => onChange(e.target.value)}>
@@ -111,7 +111,7 @@ export const SelectField: FC<{
         );
       })}
     </Select>
-    {helper && <FormHelperText fontSize="xs">{helper}</FormHelperText>}
+    {helper && <FormHelperText fontSize="xs" dir="auto">{helper}</FormHelperText>}
   </FormControl>
 );
 
@@ -128,7 +128,7 @@ export const SwitchField: FC<{ label: string; isChecked: boolean; onChange: (val
         {label}
       </FormLabel>
     </HStack>
-    {helper && <FormHelperText fontSize="xs">{helper}</FormHelperText>}
+    {helper && <FormHelperText fontSize="xs" dir="auto">{helper}</FormHelperText>}
   </FormControl>
 );
 
@@ -140,7 +140,7 @@ export const ChecksField: FC<{ label: string; value: string[]; options: string[]
   helper,
 }) => (
   <FormControl as="fieldset">
-    <FormLabel as="legend" fontSize="sm" mb={1}>
+    <FormLabel as="legend" fontSize="sm" mb={1} dir="auto">
       {label}
     </FormLabel>
     <CheckboxGroup value={value} onChange={(v) => onChange(v as string[])}>
@@ -154,7 +154,7 @@ export const ChecksField: FC<{ label: string; value: string[]; options: string[]
         ))}
       </Flex>
     </CheckboxGroup>
-    {helper && <FormHelperText fontSize="xs">{helper}</FormHelperText>}
+    {helper && <FormHelperText fontSize="xs" dir="auto">{helper}</FormHelperText>}
   </FormControl>
 );
 
@@ -162,7 +162,7 @@ export const Grid: FC<SimpleGridProps> = (props) => <SimpleGrid columns={{ base:
 
 export const Section: FC<{ title: string; children: ReactNode }> = ({ title, children }) => (
   <Box w="full" borderWidth="1px" borderRadius="md" p={3} _dark={{ borderColor: "gray.600" }}>
-    <Text fontSize="sm" fontWeight="semibold" mb={2}>
+    <Text fontSize="sm" fontWeight="semibold" mb={2} dir="auto">
       {title}
     </Text>
     {children}

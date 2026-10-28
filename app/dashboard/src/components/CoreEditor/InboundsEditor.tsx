@@ -151,7 +151,7 @@ export const InboundsEditor: FC<{ config: XrayConfig; onChange: (config: XrayCon
 
   return (
     <VStack spacing={2} align="stretch">
-      <Text fontSize="xs" opacity={0.8}>
+      <Text fontSize="xs" opacity={0.8} dir="auto">
         {t("coreEditor.inboundsHint")}
       </Text>
       <HStack>
@@ -187,7 +187,7 @@ export const InboundsEditor: FC<{ config: XrayConfig; onChange: (config: XrayCon
         );
       })}
       {!inbounds.length && (
-        <Text fontSize="sm" opacity={0.7}>
+        <Text fontSize="sm" opacity={0.7} dir="auto">
           {t("coreEditor.empty")}
         </Text>
       )}
