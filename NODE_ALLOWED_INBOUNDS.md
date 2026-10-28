@@ -79,8 +79,10 @@ v0.8.4, upgrades it, and checks that every old row still holds exactly the same 
 ## Install (official `/opt/marzban` setup)
 
 1. Back up, e.g. for SQLite: `cp /var/lib/marzban/db.sqlite3 /var/lib/marzban/db.sqlite3.bak`
-2. In `/opt/marzban/docker-compose.yml` set `image: ghcr.io/eris4444/marzban:node-inbounds`
-   (or a fixed `node-inbounds-<commit>` tag) and run `cd /opt/marzban && docker compose pull && docker compose up -d`.
+2. In `/opt/marzban/docker-compose.yml` set `image: ghcr.io/eris4444/marzban:<release>`, e.g.
+   `v0.8.4-nodes.1` from [Releases](https://github.com/eris4444/Marzban/releases) (or the branch's
+   moving `node-inbounds` / fixed `node-inbounds-<commit>` tags), and run
+   `cd /opt/marzban && docker compose pull && docker compose up -d`.
    From here on, configs pointing at the panel server stop working.
 3. `bash local-node.sh` on the panel server, if configs should work there; they work again as soon
    as it says the node is connected (about a minute after step 2).

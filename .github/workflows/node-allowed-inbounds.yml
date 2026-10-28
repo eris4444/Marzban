@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - "feature/node-allowed-inbounds"
+    tags:
+      - "v*-nodes.*"
   workflow_dispatch:
 
 permissions:
@@ -74,7 +76,11 @@ jobs:
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "$owner" --password-stdin
-          for tag in node-inbounds "node-inbounds-${GITHUB_SHA::7}"; do
+          tags="node-inbounds node-inbounds-${GITHUB_SHA::7}"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tags=$GITHUB_REF_NAME  # a release (v0.8.4-nodes.N) gets an image of the same name
+          fi
+          for tag in $tags; do
             docker tag marzban:test "ghcr.io/$owner/marzban:$tag"
             docker push "ghcr.io/$owner/marzban:$tag"
           done
