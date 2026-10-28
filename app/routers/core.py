@@ -1,6 +1,8 @@
 import asyncio
 import json
+import subprocess
 import time
+from typing import Optional
 
 import commentjson
 from fastapi import APIRouter, Depends, HTTPException, WebSocket
@@ -9,12 +11,30 @@ from starlette.websockets import WebSocketDisconnect
 from app import xray
 from app.db import Session, get_db
 from app.models.admin import Admin
-from app.models.core import CoreStats
+from app.models.core import CoreStats, RealityKeys
 from app.utils import responses
 from app.xray import XRayConfig
-from config import XRAY_JSON
+from config import XRAY_ASSETS_PATH, XRAY_EXECUTABLE_PATH, XRAY_JSON
 
 router = APIRouter(tags=["Core"], prefix="/api", responses={401: responses._401})
+
+
+def check_xray_config(config: XRayConfig):
+    """Let Xray itself load the config ("run -test" opens no port) before any core gets it."""
+    try:
+        result = subprocess.run(
+            [XRAY_EXECUTABLE_PATH, "run", "-test", "-config", "stdin:"],
+            input=config.to_json(),
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={"XRAY_LOCATION_ASSET": XRAY_ASSETS_PATH},
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError(f"Xray couldn't check the config: {exc}")
+    if result.returncode != 0:
+        lines = [line.strip() for line in (result.stdout + result.stderr).splitlines() if line.strip()]
+        raise ValueError(f"Xray rejected the config: {lines[-1] if lines else 'unknown error'}")
 
 
 @router.websocket("/core/logs")
@@ -98,6 +118,20 @@ def restart_core(admin: Admin = Depends(Admin.check_sudo_admin)):
     return {}
 
 
+@router.get("/core/x25519", response_model=RealityKeys, responses={403: responses._403})
+def get_reality_keys(
+    private_key: Optional[str] = None, admin: Admin = Depends(Admin.check_sudo_admin)
+):
+    """A new REALITY key pair, or the public key of the given private key."""
+    try:
+        keys = xray.core.get_x25519(private_key)
+    except subprocess.CalledProcessError:
+        keys = None
+    if not keys:
+        raise HTTPException(status_code=400, detail="Invalid private key")
+    return keys
+
+
 @router.get("/core/config", responses={403: responses._403})
 def get_core_config(admin: Admin = Depends(Admin.check_sudo_admin)) -> dict:
     """Get the current core configuration."""
@@ -114,6 +148,7 @@ def modify_core_config(
     """Modify the core configuration and restart the core."""
     try:
         config = XRayConfig(payload, api_port=xray.config.api_port)
+        check_xray_config(config)  # a config Xray can't load would take every core down
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err))
 

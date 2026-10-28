@@ -39,6 +39,13 @@ jobs:
           VITE_BASE_API=/api/ npm run build --if-present -- --outDir build --assetsDir statics
           cp ./build/index.html ./build/404.html
 
+      - name: Test the core editor helpers
+        working-directory: ./app/dashboard
+        run: |
+          npx esbuild tests/xrayConfig.test.ts --bundle --platform=node --log-level=warning --outfile=/tmp/xray-config-test.js
+          node /tmp/xray-config-test.js
+          npx esbuild tests/e2eConfig.ts --bundle --platform=node --log-level=warning --outfile=/tmp/e2e-config.js
+
       - name: Upload dashboard build
         uses: actions/upload-artifact@v4
         with:
@@ -63,12 +70,18 @@ jobs:
           done
 
       - name: End-to-end (SQLite)
+        env:
+          GUI_CONFIG_SCRIPT: /tmp/e2e-config.js
         run: bash tests/e2e/run.sh marzban:test sqlite
 
       - name: End-to-end (MySQL 8)
+        env:
+          GUI_CONFIG_SCRIPT: /tmp/e2e-config.js
         run: bash tests/e2e/run.sh marzban:test mysql
 
       - name: End-to-end (MariaDB)
+        env:
+          GUI_CONFIG_SCRIPT: /tmp/e2e-config.js
         run: bash tests/e2e/run.sh marzban:test mariadb
 
       - name: Push image to GitHub Container Registry

@@ -350,6 +350,47 @@ code=$(api PUT "/node/$NODE_E" '{"allowed_inbounds":[]}')
 check "clear node-e selection" [ "$code" = 200 ]
 expect_ports "no node picks anything: main core still runs no inbound" 127.0.0.1 "" "$ALL_PORTS"
 
+echo "== [$DB] 3b. a config made with the graphical editor's helpers"
+# GUI_CONFIG_SCRIPT: app/dashboard/tests/e2eConfig.ts bundled for node (see the workflow)
+if [ -n "${GUI_CONFIG_SCRIPT:-}" ]; then
+  GUI_PORTS="20010 20011 20012 20013 20014 20015"
+  api GET /core/config >/dev/null
+  cp "$WORK/resp" "$WORK/config-before.json"
+  code=$(api GET /core/x25519)
+  check "x25519 endpoint gives a REALITY key pair" [ "$code" = 200 ]
+  PRIV=$(jq -r .private_key "$WORK/resp")
+  PUB=$(jq -r .public_key "$WORK/resp")
+  api GET "/core/x25519?private_key=$PRIV" >/dev/null
+  check "x25519 endpoint derives the same public key" [ "$(jq -r .public_key "$WORK/resp")" = "$PUB" ]
+  node "$GUI_CONFIG_SCRIPT" "$WORK/config-before.json" "$PRIV" >"$WORK/config-gui.json"
+  check "editor helpers build a config" [ -s "$WORK/config-gui.json" ]
+  code=$(api PUT /core/config "$(cat "$WORK/config-gui.json")")
+  check "panel and Xray accept the editor's config" [ "$code" = 200 ]
+  [ "$code" = 200 ] || cat "$WORK/resp"
+  api GET /core/config >/dev/null
+  check "saved config has the 7 new inbounds" [ "$(jq '[.inbounds[].tag | select(startswith("GUI "))] | length' "$WORK/resp")" = 7 ]
+  expect_ports "node-c runs the editor's inbounds" "$IP_C" "$GUI_PORTS" ""
+  expect_ports "main core still runs no inbound" 127.0.0.1 "" "$GUI_PORTS"
+  api GET /user/alice >/dev/null
+  check "users get the new inbounds" jq -e '.inbounds.vless | index("GUI VLESS REALITY")' "$WORK/resp"
+  check "REALITY links carry the public key of the generated private key" \
+    bash -c "jq -r '.links[]' '$WORK/resp' | grep -qF 'pbk=$PUB'"
+
+  jq '.outbounds += [{"tag": "BROKEN", "protocol": "no-such-protocol"}]' "$WORK/config-gui.json" >"$WORK/config-broken.json"
+  code=$(api PUT /core/config "$(cat "$WORK/config-broken.json")")
+  check "a config Xray can't load is refused (400)" [ "$code" = 400 ]
+  check "the refusal quotes Xray" grep -qF "Xray rejected the config" "$WORK/resp"
+  api GET /core/config >/dev/null
+  check "the refused config was not saved" [ "$(jq '[.outbounds[].tag] | index("BROKEN")' "$WORK/resp")" = null ]
+  expect_ports "nodes keep running after the refusal" "$IP_C" "$GUI_PORTS" ""
+
+  code=$(api PUT /core/config "$(cat "$WORK/config-before.json")")
+  check "put the original config back" [ "$code" = 200 ]
+  expect_ports "editor's inbounds gone again" "$IP_C" "$ALL_PORTS" "$GUI_PORTS"
+else
+  echo "  (skipped: GUI_CONFIG_SCRIPT not set)"
+fi
+
 echo "== [$DB] 4. a node on the panel server itself (local-node.sh)"
 LOCAL=$WORK/local-node
 local_node() {

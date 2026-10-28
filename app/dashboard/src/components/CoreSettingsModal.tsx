@@ -16,6 +16,11 @@ import {
   ModalHeader,
   ModalOverlay,
   Select,
+  Tab,
+  TabList,
+  TabPanel,
+  TabPanels,
+  Tabs,
   Text,
   Tooltip,
   useToast,
@@ -33,7 +38,6 @@ import { useCoreSettings } from "contexts/CoreSettingsContext";
 import { useDashboard } from "contexts/DashboardContext";
 import debounce from "lodash.debounce";
 import { FC, useCallback, useEffect, useRef, useState } from "react";
-import { Controller, useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { useMutation } from "react-query";
 import { ReadyState } from "react-use-websocket";
@@ -43,8 +47,13 @@ import { Icon } from "./Icon";
 import { JsonEditor } from "./JsonEditor";
 import "./JsonEditor/themes.js";
 import { useNodesQuery } from "contexts/NodesContext";
+import { clone, XrayConfig } from "utils/xrayConfig";
+import { InboundsEditor } from "./CoreEditor/InboundsEditor";
+import { OutboundsEditor } from "./CoreEditor/OutboundsEditor";
+import { RoutingEditor } from "./CoreEditor/RoutingEditor";
 
 export const MAX_NUMBER_OF_LOGS = 500;
+const JSON_TAB = 3;
 
 const UsageIcon = chakra(Cog6ToothIcon, {
   baseStyle: {
@@ -140,13 +149,45 @@ const CoreSettingModalContent: FC = () => {
   const [logs, setLogs] = useState<string[]>([]);
   const { t } = useTranslation();
   const toast = useToast();
-  const form = useForm({
-    defaultValues: { config: config || {} },
-  });
+  // the config being edited; the graphical tabs change it directly, the JSON tab on leaving it
+  const [draft, setDraft] = useState<XrayConfig | null>(null);
+  const [tab, setTab] = useState(0);
+  const jsonText = useRef<string | null>(null);
 
   useEffect(() => {
-    if (config) form.setValue("config", config);
+    if (config && typeof config === "object") {
+      setDraft(clone(config as XrayConfig));
+      jsonText.current = null;
+    }
   }, [config]);
+
+  const parsedJson = (): XrayConfig | null => {
+    if (jsonText.current === null) return draft;
+    try {
+      const value = JSON.parse(jsonText.current);
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
+      return value;
+    } catch {
+      toast({
+        title: t("coreEditor.errors.json"),
+        status: "error",
+        isClosable: true,
+        position: "top",
+        duration: 3000,
+      });
+      return null;
+    }
+  };
+
+  const changeTab = (index: number) => {
+    if (tab === JSON_TAB && index !== JSON_TAB) {
+      const value = parsedJson();
+      if (!value) return;
+      setDraft(value);
+      jsonText.current = null;
+    }
+    setTab(index);
+  };
 
   useEffect(() => {
     if (isEditingCore) fetchCoreSettings();
@@ -197,9 +238,12 @@ const CoreSettingModalContent: FC = () => {
   const { mutate: handleRestartCore, isLoading: isRestarting } =
     useMutation(restartCore);
 
-  const handleOnSave = ({ config }: any) => {
-    updateConfig(config)
+  const handleOnSave = () => {
+    const config = tab === JSON_TAB ? parsedJson() : draft;
+    if (!config) return;
+    updateConfig(config as any)
       .then(() => {
+        useCoreSettings.setState({ config: config as any });
         toast({
           title: t("core.successMessage"),
           status: "success",
@@ -237,7 +281,12 @@ const CoreSettingModalContent: FC = () => {
     }
   };
   return (
-    <form onSubmit={form.handleSubmit(handleOnSave)}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        handleOnSave();
+      }}
+    >
       <ModalBody>
         <FormControl>
           <HStack justifyContent="space-between" alignItems="flex-start">
@@ -253,26 +302,55 @@ const CoreSettingModalContent: FC = () => {
               </Tooltip>
             </HStack>
           </HStack>
-          <Box position="relative" ref={editorRef} minHeight="300px">
-            <Controller
-              control={form.control}
-              name="config"
-              render={({ field }) => (
-                <JsonEditor json={config} onChange={field.onChange} />
-              )}
-            />
-            <IconButton
-              size="xs"
-              aria-label="full screen"
-              variant="ghost"
-              position="absolute"
-              top="2"
-              right="4"
-              onClick={handleFullScreen}
-            >
-              {!isFullScreen ? <FullScreenIcon /> : <ExitFullScreenIcon />}
-            </IconButton>
-          </Box>
+          {draft && (
+            <Tabs size="sm" variant="enclosed" index={tab} onChange={changeTab} isLazy>
+              <TabList flexWrap="wrap">
+                <Tab>
+                  {t("coreEditor.inbounds")} ({draft.inbounds?.length || 0})
+                </Tab>
+                <Tab>
+                  {t("coreEditor.outbounds")} ({draft.outbounds?.length || 0})
+                </Tab>
+                <Tab>
+                  {t("coreEditor.routing")} ({draft.routing?.rules?.length || 0})
+                </Tab>
+                <Tab>JSON</Tab>
+              </TabList>
+              <TabPanels>
+                <TabPanel px={1} maxH="460px" overflowY="auto">
+                  <InboundsEditor config={draft} onChange={setDraft} />
+                </TabPanel>
+                <TabPanel px={1} maxH="460px" overflowY="auto">
+                  <OutboundsEditor config={draft} onChange={setDraft} />
+                </TabPanel>
+                <TabPanel px={1} maxH="460px" overflowY="auto">
+                  <RoutingEditor config={draft} onChange={setDraft} />
+                </TabPanel>
+                <TabPanel px={0}>
+                  <Box position="relative" ref={editorRef} minHeight="300px">
+                    <JsonEditor
+                      json={draft}
+                      onChange={(value) => (jsonText.current = value)}
+                    />
+                    <IconButton
+                      size="xs"
+                      aria-label="full screen"
+                      variant="ghost"
+                      position="absolute"
+                      top="2"
+                      right="4"
+                      onClick={handleFullScreen}
+                    >
+                      {!isFullScreen ? <FullScreenIcon /> : <ExitFullScreenIcon />}
+                    </IconButton>
+                  </Box>
+                </TabPanel>
+              </TabPanels>
+            </Tabs>
+          )}
+          <Text fontSize="xs" opacity={0.7} mt={2}>
+            {t("coreEditor.saveHint")}
+          </Text>
         </FormControl>
         <FormControl mt="4">
           <HStack
@@ -385,7 +463,7 @@ export const CoreSettingsModal: FC = () => {
   const { t } = useTranslation();
 
   return (
-    <Modal isOpen={isEditingCore} onClose={onClose} size="3xl">
+    <Modal isOpen={isEditingCore} onClose={onClose} size="4xl">
       <ModalOverlay bg="blackAlpha.300" backdropFilter="blur(10px)" />
       <ModalContent mx="3" w="full">
         <ModalHeader pt={6}>
