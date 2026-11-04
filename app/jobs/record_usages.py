@@ -16,6 +16,7 @@ from config import (
     DISABLE_RECORDING_NODE_USAGE,
     JOB_RECORD_NODE_USAGES_INTERVAL,
     JOB_RECORD_USER_USAGES_INTERVAL,
+    SYSTEM_USAGE_WITH_COEFFICIENT,
 )
 from xray_api import XRay as XRayAPI
 from xray_api import exc as xray_exc
@@ -183,22 +184,32 @@ def record_user_usages():
         record_user_stats(params, node_id, usage_coefficient[node_id])
 
 
+def system_totals(api_params: dict, coefficients: dict, with_coefficient: bool):
+    """Uplink and downlink for the dashboard's total data usage. With `with_coefficient` each
+    node's traffic counts times its usage coefficient, the way users' usage counts."""
+    total_up = 0
+    total_down = 0
+    for node_id, params in api_params.items():
+        coefficient = coefficients.get(node_id, 1) if with_coefficient else 1
+        for param in params:
+            total_up += int(param['up'] * coefficient)
+            total_down += int(param['down'] * coefficient)
+    return total_up, total_down
+
+
 def record_node_usages():
     api_instances = {None: xray.api}
+    usage_coefficient = {None: 1}
     for node_id, node in list(xray.nodes.items()):
         if node.connected and node.started:
             api_instances[node_id] = node.api
+            usage_coefficient[node_id] = node.usage_coefficient
 
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {node_id: executor.submit(get_outbounds_stats, api) for node_id, api in api_instances.items()}
     api_params = {node_id: future.result() for node_id, future in futures.items()}
 
-    total_up = 0
-    total_down = 0
-    for node_id, params in api_params.items():
-        for param in params:
-            total_up += param['up']
-            total_down += param['down']
+    total_up, total_down = system_totals(api_params, usage_coefficient, SYSTEM_USAGE_WITH_COEFFICIENT)
     if not (total_up or total_down):
         return
 

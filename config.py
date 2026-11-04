@@ -133,6 +133,9 @@ NOTIFY_DAYS_LEFT = config(
 )
 
 DISABLE_RECORDING_NODE_USAGE = config("DISABLE_RECORDING_NODE_USAGE", cast=bool, default=False)
+# the dashboard's total data usage counts each node's traffic times the node's usage coefficient,
+# like users' usage does, so it equals what users are charged (default: the real traffic)
+SYSTEM_USAGE_WITH_COEFFICIENT = config("SYSTEM_USAGE_WITH_COEFFICIENT", cast=bool, default=False)
 
 # headers: profile-update-interval, support-url, profile-title
 SUB_UPDATE_INTERVAL = config("SUB_UPDATE_INTERVAL", default="12")
